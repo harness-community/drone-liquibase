@@ -1,0 +1,11 @@
+FROM alpine:3.17 as alpine
+RUN apk add -U --no-cache ca-certificates
+
+FROM liquibase/liquibase:4.27-alpine
+ADD resources /resources
+COPY entrypoint.sh /entrypoint.sh
+RUN lpm add mysql --global
+
+COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["--help"]
