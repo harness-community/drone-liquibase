@@ -1,0 +1,34 @@
+FROM alpine:3.17 as alpine
+RUN apk add -U --no-cache ca-certificates
+
+ENV MONGO_DRIVER_CORE_VERSION=5.0.0
+ENV MONGO_DRIVER_SYNC_VERSION=5.0.0
+ENV BSON_VERSION=5.0.0
+ENV LIQUIBASE_MONGODB_VERSION=4.24.0
+ENV SNAKE_YAML_VERSION=2.2
+
+RUN apk add --no-cache wget && \
+    mkdir -p /liquibase/lib && \
+    wget -O /liquibase/lib/mongodb-driver-core-${MONGO_DRIVER_CORE_VERSION}.jar \
+    https://repo1.maven.org/maven2/org/mongodb/mongodb-driver-core/${MONGO_DRIVER_CORE_VERSION}/mongodb-driver-core-${MONGO_DRIVER_CORE_VERSION}.jar && \
+    wget -O /liquibase/lib/mongodb-driver-sync-${MONGO_DRIVER_SYNC_VERSION}.jar \
+    https://repo1.maven.org/maven2/org/mongodb/mongodb-driver-sync/${MONGO_DRIVER_SYNC_VERSION}/mongodb-driver-sync-${MONGO_DRIVER_SYNC_VERSION}.jar && \
+    wget -O /liquibase/lib/bson-${BSON_VERSION}.jar \
+    https://repo1.maven.org/maven2/org/mongodb/bson/${BSON_VERSION}/bson-${BSON_VERSION}.jar && \
+    wget -O /liquibase/lib/liquibase-mongodb-${LIQUIBASE_MONGODB_VERSION}.jar \
+    https://repo1.maven.org/maven2/org/liquibase/ext/liquibase-mongodb/${LIQUIBASE_MONGODB_VERSION}/liquibase-mongodb-${LIQUIBASE_MONGODB_VERSION}.jar && \
+    wget -O /liquibase/lib/snakeyaml-${SNAKE_YAML_VERSION}.jar \
+    https://repo1.maven.org/maven2/org/yaml/snakeyaml/${SNAKE_YAML_VERSION}/snakeyaml-${SNAKE_YAML_VERSION}.jar
+
+
+FROM liquibase/liquibase:4.27-alpine
+ADD resources /resources
+COPY entrypoint.sh /entrypoint.sh
+RUN lpm add mysql --global
+
+
+COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=alpine /liquibase/lib /liquibase/lib
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["--help"]
