@@ -54,5 +54,9 @@ done
 
 # Print the constructed argument string
 echo "/liquibase/liquibase $argument_string"
-/liquibase/liquibase $argument_string
+(/liquibase/liquibase $argument_string) | tee command_logs.txt
+
+encoded_command_logs=$(cat command_logs.txt | base64 -w 0)
+
+echo "encoded_command_logs=$encoded_command_logs" > "$DRONE_OUTPUT"
 
