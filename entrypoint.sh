@@ -58,5 +58,7 @@ echo "/liquibase/liquibase $argument_string"
 
 encoded_command_logs=$(cat command_logs.txt | base64 -w 0)
 
+encoded_command_logs=`echo $encoded_command_logs | tr = -`
+
 echo "encoded_command_logs=$encoded_command_logs" > "$DRONE_OUTPUT"
 
