@@ -53,12 +53,20 @@ done
 
 
 # Print the constructed argument string
-echo "/liquibase/liquibase $argument_string"
-(/liquibase/liquibase $argument_string) | tee command_logs.txt
+command=`echo "/liquibase/liquibase $argument_string"`
+echo "$command"
 
-encoded_command_logs=$(cat command_logs.txt | base64 -w 0)
+# Create unique file to avoid override in parallel steps
+logfile=$(mktemp)
+
+{ $command; } 2>&1 | tee -a "$logfile"
+
+exit_code=${PIPESTATUS[0]}
+
+encoded_command_logs=$(cat "$logfile" | base64 -w 0)
 
 encoded_command_logs=`echo $encoded_command_logs | tr = -`
 
 echo "encoded_command_logs=$encoded_command_logs" > "$DRONE_OUTPUT"
+echo "exit_code=$exit_code" >> "$DRONE_OUTPUT"
 
