@@ -1,0 +1,19 @@
+image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest-spanner{{/if}}
+{{#if build.tags}}
+tags:
+{{#each build.tags}}
+  - {{this}}
+{{/each}}
+{{/if}}
+manifests:
+  -
+    image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}-{{/if}}linux-spanner-amd64
+    platform:
+      architecture: amd64
+      os: linux
+  -
+    image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}-{{/if}}linux-spanner-arm64
+    platform:
+      variant: v8
+      architecture: arm64
+      os: linux
