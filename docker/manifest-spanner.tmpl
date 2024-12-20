@@ -1,4 +1,4 @@
-image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest-spanner{{/if}}
+image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest{{/if}}-spanner
 {{#if build.tags}}
 tags:
 {{#each build.tags}}
@@ -7,12 +7,12 @@ tags:
 {{/if}}
 manifests:
   -
-    image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}-{{/if}}linux-spanner-amd64
+    image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest{{/if}}-linux-spanner-amd64
     platform:
       architecture: amd64
       os: linux
   -
-    image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}-{{/if}}linux-spanner-arm64
+    image: plugins/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest{{/if}}-linux-spanner-arm64
     platform:
       variant: v8
       architecture: arm64
