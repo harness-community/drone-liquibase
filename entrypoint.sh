@@ -51,6 +51,18 @@ for var in $(env | grep '^PLUGIN_LIQUIBASE_' | awk -F= '{print $1}'); do
     argument_string="$argument_string --$var_name_lower ${!var}"
 done
 
+# Define the SA target file
+SERVICE_ACCOUNT_KEY_FILE="/tmp/harness-google-application-credentials.json"
+
+# Check if the environment variable is set and the file does not already exist
+if [[ -n "$PLUGIN_JSON_KEY" && ! -f "$SERVICE_ACCOUNT_KEY_FILE" ]]; then
+    echo "Creating service account key file..."
+
+    # Write the content of PLUGIN_JSON_KEY to the file if it is set
+    echo "${PLUGIN_JSON_KEY:-}" > "$SERVICE_ACCOUNT_KEY_FILE"
+    # Export the GOOGLE_APPLICATION_CREDENTIALS variable to point to the file
+    export GOOGLE_APPLICATION_CREDENTIALS="$SERVICE_ACCOUNT_KEY_FILE"
+fi
 
 # Print the constructed argument string
 command=`echo "/liquibase/liquibase $argument_string"`
