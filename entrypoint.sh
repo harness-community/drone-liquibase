@@ -44,24 +44,31 @@ fi
 
 
 # Check if client certificate key file exists and import it
-CLIENT_KEY_PATH="/etc/ssl/certs/dbops/client_pkcs12.txt"
 CLIENT_PKCS_12_PATH="/etc/ssl/certs/dbops/client.p12"
-if [ -f "$CLIENT_KEY_PATH" ]; then
-      base64 -d ${CLIENT_KEY_PATH} > ${CLIENT_PKCS_12_PATH}
-      echo "Importing client certificate into default JVM keyStore..."
-      if [ -z "$JAVA_HOME" ]; then
-          echo "Error: JAVA_HOME is not set. Cannot import client certificate key file in path $CLIENT_PKCS_12_PATH"
-          exit 1
-      fi
-      keytool -importkeystore \
-      -destkeystore "${JAVA_HOME}/lib/security/jssecacerts" \
-      -srckeystore "$CLIENT_PKCS_12_PATH" \
-      -srcstoretype PKCS12 \
-      -alias mongo-client \
-      -storepass "$password" \
-      -srcstorepass "$password"
-      #JAVA_OPTS is a variable that belongs to liquibase. This sets the env variables
-      export JAVA_OPTS="-Djavax.net.ssl.keyStore=$JAVA_HOME/lib/security/jssecacerts -Djavax.net.ssl.keyStorePassword=$password -Djavax.net.ssl.trustStore=$JAVA_HOME/lib/security/cacerts -Djavax.net.ssl.trustStorePassword=$password"
+CLIENT_CERT="/etc/ssl/certs/dbops/client.crt"
+CLIENT_KEY="/etc/ssl/certs/dbops/client.key"
+
+if [ -f "$CLIENT_CERT" ]; then
+  if [ -f "$CLIENT_KEY" ]; then
+
+        echo "generating pkcs12 based on $CLIENT_CERT and $CLIENT_KEY"
+        openssl pkcs12 -export -in "$CLIENT_CERT" -inkey "$CLIENT_KEY" -out "$CLIENT_PKCS_12_PATH" -name client_pkcs12 -password pass:"$password"
+
+        echo "Importing client certificate into default JVM keyStore..."
+        if [ -z "$JAVA_HOME" ]; then
+            echo "Error: JAVA_HOME is not set. Cannot import client certificate for $CLIENT_CERT and $CLIENT_KEY"
+            exit 1
+        fi
+        keytool -importkeystore \
+        -destkeystore "${JAVA_HOME}/lib/security/jssecacerts" \
+        -srckeystore "$CLIENT_PKCS_12_PATH" \
+        -srcstoretype PKCS12 \
+        -alias client_pkcs12 \
+        -storepass "$password" \
+        -srcstorepass "$password"
+        #JAVA_OPTS is a variable that belongs to liquibase. This sets the env variables
+        export JAVA_OPTS="-Djavax.net.ssl.keyStore=$JAVA_HOME/lib/security/jssecacerts -Djavax.net.ssl.keyStorePassword=$password -Djavax.net.ssl.trustStore=$JAVA_HOME/lib/security/cacerts -Djavax.net.ssl.trustStorePassword=$password"
+  fi
 fi
 
 # Read global options into an array

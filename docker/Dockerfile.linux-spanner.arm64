@@ -1,5 +1,5 @@
 FROM alpine:3.17 AS alpine
-RUN apk add -U --no-cache ca-certificates
+RUN apk add -U --no-cache ca-certificates openssl
 
 ENV LIQUIBASE_SPANNER_VERSION=4.30.0.1
 
@@ -12,6 +12,11 @@ FROM liquibase/liquibase:4.27-alpine
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
 RUN lpm add mysql --global
+
+# Copy OpenSSL
+COPY --from=alpine /usr/bin/openssl /usr/bin/openssl
+COPY --from=alpine /lib/libssl.so.3 /lib/libssl.so.3
+COPY --from=alpine /lib/libcrypto.so.3 /lib/libcrypto.so.3
 
 
 COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
