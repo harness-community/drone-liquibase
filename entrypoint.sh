@@ -82,32 +82,34 @@ if [ -z "$PLUGIN_COMMAND" ]; then
     exit 1
 fi
 
-# Initialize a variable to hold the constructed argument string
-argument_string=""
+# Initialize an array to hold the constructed argument list
+# We are using an array to ensure that values containing spaces are preserved
+# Without an array, each word within a space is considered as a liquibase command
+declare -a command_args
 
 # Iterate through the list of global options
 for option in "${global_options[@]}"; do
     env_var_name="PLUGIN_LIQUIBASE_$(echo "$option" | tr '-' '_' | tr '[:lower:]' '[:upper:]')"
 
-    # 3. If the resulting environment variable is set, append to the argument string
+    # If the environment variable is set, append to the argument list
     if [ -n "${!env_var_name}" ]; then
-        argument_string="$argument_string --$option ${!env_var_name}"
-	# unset the environment variable to hide it from now on
-	unset "$env_var_name"
+        command_args+=("--$option" "${!env_var_name}")
+        # unset the environment variable to hide it from now on
+        unset "$env_var_name"
     fi
 done
 
-argument_string="$argument_string $PLUGIN_COMMAND"
+command_args+=("$PLUGIN_COMMAND")
 
-
-# Add all remaining PLUGIN_LIQUIBASE_ environment variables are command line params
+# Add remaining environment variables
 for var in $(env | grep '^PLUGIN_LIQUIBASE_' | awk -F= '{print $1}'); do
     # Remove "PLUGIN_LIQUIBASE_" from the variable name, convert to lowercase, and replace underscores with hyphens
     var_name="${var#PLUGIN_LIQUIBASE_}"
     var_name_lower="$(echo "$var_name" | tr '[:upper:]' '[:lower:]' | tr '_' '-')"
+    value="${!var}"
 
-    # Construct the string in the desired format
-    argument_string="$argument_string --$var_name_lower ${!var}"
+    # Append the argument
+    command_args+=("--$var_name_lower" "$value")
 done
 
 # Define the SA target file
@@ -123,16 +125,20 @@ if [[ -n "$PLUGIN_JSON_KEY" && ! -f "$SERVICE_ACCOUNT_KEY_FILE" ]]; then
     export GOOGLE_APPLICATION_CREDENTIALS="$SERVICE_ACCOUNT_KEY_FILE"
 fi
 
-# Print the constructed argument string
-command=`echo "/liquibase/liquibase $argument_string"`
-echo "$command"
+# Print the constructed command for debugging
+command_args=("/liquibase/liquibase" "${command_args[@]}")
+echo "${command_args[@]}"
 
 # Create unique file to avoid override in parallel steps
 logfile=$(mktemp)
 
-{ $command; } 2>&1 | tee -a "$logfile"
-
-exit_code=${PIPESTATUS[0]}
+# Execute the command using the array format
+# we are using an array to ensure that values containing spaces are preserved
+# Without an array, each word within a space is considered as a liquibase command
+{
+  "${command_args[@]}" 2>&1 | tee -a "$logfile"
+  exit_code=${PIPESTATUS[0]}  # Capture the exit code of the actual command
+}
 
 encoded_command_logs=$(cat "$logfile" | base64 -w 0)
 
@@ -140,4 +146,3 @@ encoded_command_logs=`echo $encoded_command_logs | tr = -`
 
 echo "encoded_command_logs=$encoded_command_logs" > "$DRONE_OUTPUT"
 echo "exit_code=$exit_code" >> "$DRONE_OUTPUT"
-
