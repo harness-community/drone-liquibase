@@ -101,6 +101,16 @@ done
 
 command_args+=("$PLUGIN_COMMAND")
 
+# Add changelog substitution properties
+for var in $(env | grep '^PLUGIN_SUBSTITUTE_LIQUIBASE_' | awk -F= '{print $1}'); do
+    # Remove "PLUGIN_SUBSTITUTE_LIQUIBASE_" from the variable name
+    var_name="${var#PLUGIN_SUBSTITUTE_LIQUIBASE_}"
+    value="${!var}"
+
+    # Append the argument
+    command_args+=("-D\"$var_name\"" "$value")
+done
+
 # Add remaining environment variables
 for var in $(env | grep '^PLUGIN_LIQUIBASE_' | awk -F= '{print $1}'); do
     # Remove "PLUGIN_LIQUIBASE_" from the variable name, convert to lowercase, and replace underscores with hyphens
