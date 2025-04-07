@@ -108,7 +108,7 @@ for var in $(env | grep '^PLUGIN_SUBSTITUTE_LIQUIBASE_' | awk -F= '{print $1}');
     value="${!var}"
 
     # Append the argument
-    command_args+=("-D\"$var_name\"" "$value")
+    command_args+=("-D$var_name=$value")
 done
 
 # Add remaining environment variables
