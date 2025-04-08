@@ -20,6 +20,15 @@ fi
 # Initialize an array to store global options
 declare -a global_options
 
+# Read file using a separate file descriptor
+exec 3< "$global_options_file"
+while IFS= read -r -u 3 option; do
+    if [ -n "$option" ]; then
+        global_options+=("$option")
+    fi
+done
+exec 3<&-  # Close file descriptor
+
 #set common pwd
 password="changeit"
 
@@ -70,11 +79,6 @@ if [ -f "$CLIENT_CERT" ]; then
         export JAVA_OPTS="-Djavax.net.ssl.keyStore=$JAVA_HOME/lib/security/jssecacerts -Djavax.net.ssl.keyStorePassword=$password -Djavax.net.ssl.trustStore=$JAVA_HOME/lib/security/cacerts -Djavax.net.ssl.trustStorePassword=$password"
   fi
 fi
-
-# Read global options into an array
-while IFS= read -r option || [[ -n "$option" ]]; do
-    global_options+=("$option")
-done < "$global_options_file"
 
 # Check if PLUGIN_COMMAND is non-empty
 if [ -z "$PLUGIN_COMMAND" ]; then
