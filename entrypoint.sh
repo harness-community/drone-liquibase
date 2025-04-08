@@ -102,14 +102,29 @@ done
 command_args+=("$PLUGIN_COMMAND")
 
 # Add changelog substitution properties
-for var in $(env | grep '^PLUGIN_SUBSTITUTE_LIQUIBASE_' | awk -F= '{print $1}'); do
-    # Remove "PLUGIN_SUBSTITUTE_LIQUIBASE_" from the variable name
-    var_name="${var#PLUGIN_SUBSTITUTE_LIQUIBASE_}"
-    value="${!var}"
-
-    # Append the argument
-    command_args+=("-D$var_name=$value")
-done
+if [ -n "$PLUGIN_SUBSTITUTE_LIQUIBASE" ]; then
+    echo "Processing substitution properties..."
+    
+    # Step 1: Create temporary file
+    temp_file=$(mktemp)
+    trap 'rm -f "$temp_file"' EXIT
+    
+    # Step 2: Base64 decode directly to file (using BusyBox compatible options)
+    echo "$PLUGIN_SUBSTITUTE_LIQUIBASE" | base64 -d > "$temp_file"
+    
+    # Step 3: Decompress using zstd
+    if ! decompressed=$(zstd -d -c "$temp_file"); then
+        echo "Error: zstd decompression failed"
+        exit 1
+    fi
+    
+    # Step 4: Parse JSON and convert to Liquibase arguments
+    while IFS= read -r arg; do
+        if [ -n "$arg" ]; then
+            command_args+=("$arg")
+        fi
+    done < <(echo "$decompressed" | jq -r 'to_entries | .[] | "-D\(.key)=\(.value)"')
+fi
 
 # Add remaining environment variables
 for var in $(env | grep '^PLUGIN_LIQUIBASE_' | awk -F= '{print $1}'); do
