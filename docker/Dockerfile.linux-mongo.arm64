@@ -9,6 +9,8 @@ ENV MONGO_DRIVER_SYNC_VERSION=5.0.0
 ENV BSON_VERSION=5.0.0
 ENV LIQUIBASE_MONGODB_VERSION=4.24.0
 ENV SNAKE_YAML_VERSION=2.2
+ENV LIQUIBASE_DBOPS_EXT_VERSION=1.3.0
+ENV LIQUIBASE_DBOPS_EXT_ZSTD_VERSION=1.5.5-5
 
 RUN apk add --no-cache wget && \
     mkdir -p /liquibase/lib && \
@@ -21,7 +23,13 @@ RUN apk add --no-cache wget && \
     wget -O /liquibase/lib/liquibase-mongodb-${LIQUIBASE_MONGODB_VERSION}.jar \
     https://repo1.maven.org/maven2/org/liquibase/ext/liquibase-mongodb/${LIQUIBASE_MONGODB_VERSION}/liquibase-mongodb-${LIQUIBASE_MONGODB_VERSION}.jar && \
     wget -O /liquibase/lib/snakeyaml-${SNAKE_YAML_VERSION}.jar \
-    https://repo1.maven.org/maven2/org/yaml/snakeyaml/${SNAKE_YAML_VERSION}/snakeyaml-${SNAKE_YAML_VERSION}.jar
+    https://repo1.maven.org/maven2/org/yaml/snakeyaml/${SNAKE_YAML_VERSION}/snakeyaml-${SNAKE_YAML_VERSION}.jar && \
+    wget -O /liquibase/lib/dbops-extensions-${LIQUIBASE_DBOPS_EXT_VERSION}.jar \
+    https://us-maven.pkg.dev/gar-prod-setup/harness-maven-public/io/harness/dbops-extensions/${LIQUIBASE_DBOPS_EXT_VERSION}/dbops-extensions-${LIQUIBASE_DBOPS_EXT_VERSION}.jar && \
+    wget -O /liquibase/lib/zstd-jni-${LIQUIBASE_DBOPS_EXT_ZSTD_VERSION}.jar \
+    https://repo1.maven.org/maven2/com/github/luben/zstd-jni/${LIQUIBASE_DBOPS_EXT_ZSTD_VERSION}/zstd-jni-${LIQUIBASE_DBOPS_EXT_ZSTD_VERSION}.jar
+
+
 
 
 FROM liquibase/liquibase:4.27-alpine

@@ -5,11 +5,17 @@ RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0
 RUN apk add --no-cache zstd=1.5.5-r0
 
 ENV LIQUIBASE_SPANNER_VERSION=4.30.0.1
+ENV LIQUIBASE_DBOPS_EXT_VERSION=1.3.0
+ENV LIQUIBASE_DBOPS_EXT_ZSTD_VERSION=1.5.5-5
 
 RUN apk add --no-cache wget && \
     mkdir -p /liquibase/lib && \
     wget -O /liquibase/lib/liquibase-spanner-${LIQUIBASE_SPANNER_VERSION}-all.jar \
-    https://github.com/cloudspannerecosystem/liquibase-spanner/releases/download/${LIQUIBASE_SPANNER_VERSION}/liquibase-spanner-${LIQUIBASE_SPANNER_VERSION}-all.jar
+    https://github.com/cloudspannerecosystem/liquibase-spanner/releases/download/${LIQUIBASE_SPANNER_VERSION}/liquibase-spanner-${LIQUIBASE_SPANNER_VERSION}-all.jar && \
+    wget -O /liquibase/lib/dbops-extensions-${LIQUIBASE_DBOPS_EXT_VERSION}.jar \
+    https://us-maven.pkg.dev/gar-prod-setup/harness-maven-public/io/harness/dbops-extensions/${LIQUIBASE_DBOPS_EXT_VERSION}/dbops-extensions-${LIQUIBASE_DBOPS_EXT_VERSION}.jar && \
+    wget -O /liquibase/lib/zstd-jni-${LIQUIBASE_DBOPS_EXT_ZSTD_VERSION}.jar \
+    https://repo1.maven.org/maven2/com/github/luben/zstd-jni/${LIQUIBASE_DBOPS_EXT_ZSTD_VERSION}/zstd-jni-${LIQUIBASE_DBOPS_EXT_ZSTD_VERSION}.jar
 
 FROM liquibase/liquibase:4.27-alpine
 ADD resources /resources
