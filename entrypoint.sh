@@ -107,8 +107,6 @@ command_args+=("$PLUGIN_COMMAND")
 
 # Add changelog substitution properties
 if [ -n "$PLUGIN_SUBSTITUTE_LIQUIBASE" ]; then
-    echo "Processing substitution properties..."
-    
     # Step 1: Create temporary file
     temp_file=$(mktemp)
     trap 'rm -f "$temp_file"' EXIT

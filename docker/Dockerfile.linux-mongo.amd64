@@ -1,5 +1,8 @@
 FROM alpine:3.17 as alpine
-RUN apk add -U --no-cache ca-certificates openssl
+RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0
+
+# Install zstd
+RUN apk add --no-cache zstd=1.5.5-r0
 
 ENV MONGO_DRIVER_CORE_VERSION=5.0.0
 ENV MONGO_DRIVER_SYNC_VERSION=5.0.0
@@ -34,6 +37,12 @@ COPY --from=alpine /lib/libcrypto.so.3 /lib/libcrypto.so.3
 
 COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=alpine /liquibase/lib /liquibase/lib
+
+# Copy the zstd binary from Alpine stage
+COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
+COPY --from=alpine /usr/bin/jq /usr/bin/jq
+# Copy jq dependencies
+COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--help"]
