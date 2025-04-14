@@ -8,27 +8,6 @@ if [ -z "$JAVA_HOME" ]; then
 fi
 export JAVA_HOME
 
-# Read global options from file
-global_options_file="/resources/global_options.txt"
-
-# Check if the file exists
-if [ ! -f "$global_options_file" ]; then
-    echo "Error: File '$global_options_file' not found."
-    exit 1
-fi
-
-# Initialize an array to store global options
-declare -a global_options
-
-# Read file using a separate file descriptor
-exec 3< "$global_options_file"
-while IFS= read -r -u 3 option; do
-    if [ -n "$option" ]; then
-        global_options+=("$option")
-    fi
-done
-exec 3<&-  # Close file descriptor
-
 #set common pwd
 password="changeit"
 
@@ -85,6 +64,27 @@ if [ -z "$PLUGIN_COMMAND" ]; then
     echo "Error: PLUGIN_COMMAND is empty. Please set PLUGIN_COMMAND before running the script."
     exit 1
 fi
+
+# Read global options from file
+global_options_file="/resources/global_options.txt"
+
+# Check if the file exists
+if [ ! -f "$global_options_file" ]; then
+    echo "Error: File '$global_options_file' not found."
+    exit 1
+fi
+
+# Initialize an array to store global options
+declare -a global_options
+
+# Read file using a separate file descriptor
+exec 3< "$global_options_file"
+while IFS= read -r -u 3 option; do
+    if [ -n "$option" ]; then
+        global_options+=("$option")
+    fi
+done
+exec 3<&-  # Close file descriptor
 
 # Initialize an array to hold the constructed argument list
 # We are using an array to ensure that values containing spaces are preserved

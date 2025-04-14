@@ -17,8 +17,8 @@ COPY --from=alpine /lib/libcrypto.so.3 /lib/libcrypto.so.3
 COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Copy the zstd binary from Alpine stage
 COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
-COPY --from=alpine /usr/bin/jq /usr/bin/jq
 # Copy jq dependencies
+COPY --from=alpine /usr/bin/jq /usr/bin/jq
 COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
 
 ENTRYPOINT ["/entrypoint.sh"]
