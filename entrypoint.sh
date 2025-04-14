@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Check for required commands early
+for cmd in jq zstd base64; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Error: Missing required command: $cmd"
+    exit 1
+  fi
+done
+
 JAVA_HOME=$(java -XshowSettings:properties -version 2>&1 | grep 'java.home' | awk '{print $3}')
 
 #if java_home is empty, then we use a different command. Fallback case
@@ -7,18 +15,6 @@ if [ -z "$JAVA_HOME" ]; then
   JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
 fi
 export JAVA_HOME
-
-# Read global options from file
-global_options_file="/resources/global_options.txt"
-
-# Check if the file exists
-if [ ! -f "$global_options_file" ]; then
-    echo "Error: File '$global_options_file' not found."
-    exit 1
-fi
-
-# Initialize an array to store global options
-declare -a global_options
 
 #set common pwd
 password="changeit"
@@ -71,16 +67,32 @@ if [ -f "$CLIENT_CERT" ]; then
   fi
 fi
 
-# Read global options into an array
-while IFS= read -r option || [[ -n "$option" ]]; do
-    global_options+=("$option")
-done < "$global_options_file"
-
 # Check if PLUGIN_COMMAND is non-empty
 if [ -z "$PLUGIN_COMMAND" ]; then
     echo "Error: PLUGIN_COMMAND is empty. Please set PLUGIN_COMMAND before running the script."
     exit 1
 fi
+
+# Read global options from file
+global_options_file="/resources/global_options.txt"
+
+# Check if the file exists
+if [ ! -f "$global_options_file" ]; then
+    echo "Error: File '$global_options_file' not found."
+    exit 1
+fi
+
+# Initialize an array to store global options
+declare -a global_options
+
+# Read file using a separate file descriptor
+exec 3< "$global_options_file"
+while IFS= read -r -u 3 option; do
+    if [ -n "$option" ]; then
+        global_options+=("$option")
+    fi
+done
+exec 3<&-  # Close file descriptor
 
 # Initialize an array to hold the constructed argument list
 # We are using an array to ensure that values containing spaces are preserved
@@ -100,6 +112,44 @@ for option in "${global_options[@]}"; do
 done
 
 command_args+=("$PLUGIN_COMMAND")
+
+# Add changelog substitution properties
+if [ -n "$PLUGIN_SUBSTITUTE_LIQUIBASE" ]; then
+    # Step 1: Create temporary file for decoded content
+    substitute_properties_decoded=$(mktemp)
+    trap 'rm -f "$substitute_properties_decoded"' EXIT
+
+    # Step 2: Base64 decode directly to file
+    if ! echo "$PLUGIN_SUBSTITUTE_LIQUIBASE" | base64 -d > "$substitute_properties_decoded" 2>/dev/null; then
+        echo "Error: Failed to decode base64 input"
+        exit 1
+    fi
+    
+    # Step 3: Decompress using zstd
+    if ! decompressed=$(zstd -d -c "$substitute_properties_decoded"); then
+        echo "Error: zstd decompression failed"
+        exit 1
+    fi
+    
+    # Check for empty decompressed data
+    if [ -z "$decompressed" ]; then
+        echo "Error: Decompressed data is empty"
+        exit 1
+    fi
+    
+    # Validate JSON format
+    if ! echo "$decompressed" | jq empty 2>/dev/null; then
+        echo "Error: Invalid JSON in decompressed input"
+        exit 1
+    fi
+    
+    # Step 4: Parse JSON and convert to Liquibase arguments
+    while IFS= read -r arg; do
+        if [ -n "$arg" ]; then
+            command_args+=("$arg")
+        fi
+    done < <(echo "$decompressed" | jq -r 'to_entries | .[] | "-D\(.key)=\(.value)"')
+fi
 
 # Add remaining environment variables
 for var in $(env | grep '^PLUGIN_LIQUIBASE_' | awk -F= '{print $1}'); do
