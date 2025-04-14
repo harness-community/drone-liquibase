@@ -1,8 +1,8 @@
 FROM alpine:3.17 as alpine
-RUN apk add -U --no-cache ca-certificates openssl jq=1.7.1-r0 oniguruma=6.9.9-r0
+RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0
 
 # Install zstd
-RUN apk add --no-cache zstd=1.5.5-r5
+RUN apk add --no-cache zstd=1.5.5-r0
 
 FROM liquibase/liquibase:4.27-alpine
 ADD resources /resources
