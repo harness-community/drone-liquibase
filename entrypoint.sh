@@ -108,14 +108,14 @@ command_args+=("$PLUGIN_COMMAND")
 # Add changelog substitution properties
 if [ -n "$PLUGIN_SUBSTITUTE_LIQUIBASE" ]; then
     # Step 1: Create temporary file
-    temp_file=$(mktemp)
+    substitute_properties_decoded=$(mktemp)
     trap 'rm -f "$temp_file"' EXIT
     
     # Step 2: Base64 decode directly to file (using BusyBox compatible options)
-    echo "$PLUGIN_SUBSTITUTE_LIQUIBASE" | base64 -d > "$temp_file"
+    echo "$PLUGIN_SUBSTITUTE_LIQUIBASE" | base64 -d > "$substitute_properties_decoded"
     
     # Step 3: Decompress using zstd
-    if ! decompressed=$(zstd -d -c "$temp_file"); then
+    if ! decompressed=$(zstd -d -c "$substitute_properties_decoded"); then
         echo "Error: zstd decompression failed"
         exit 1
     fi
