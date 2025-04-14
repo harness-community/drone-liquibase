@@ -109,7 +109,7 @@ command_args+=("$PLUGIN_COMMAND")
 if [ -n "$PLUGIN_SUBSTITUTE_LIQUIBASE" ]; then
     # Step 1: Create temporary file
     substitute_properties_decoded=$(mktemp)
-    trap 'rm -f "$temp_file"' EXIT
+    trap 'rm -f "$substitute_properties_decoded"' EXIT
     
     # Step 2: Base64 decode directly to file (using BusyBox compatible options)
     echo "$PLUGIN_SUBSTITUTE_LIQUIBASE" | base64 -d > "$substitute_properties_decoded"
