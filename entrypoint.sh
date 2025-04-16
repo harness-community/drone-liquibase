@@ -76,23 +76,45 @@ fi
 # Read global options from file
 global_options_file="/resources/global_options.txt"
 
-# Check if the file exists
-if [ ! -f "$global_options_file" ]; then
-    echo "Error: File '$global_options_file' not found."
-    exit 1
-fi
-
 # Initialize an array to store global options
 declare -a global_options
 
-# Read file using a separate file descriptor
-exec 3< "$global_options_file"
-while IFS= read -r -u 3 option; do
-    if [ -n "$option" ]; then
-        global_options+=("$option")
+# Maximum number of retries
+max_retries=3
+retry_count=0
+retry_delay=1
+
+while [ $retry_count -lt $max_retries ]; do
+    if [ ! -r "$global_options_file" ]; then
+        echo "Warning: File '$global_options_file' not readable, attempt $((retry_count + 1))/$max_retries"
+        sleep $retry_delay
+        retry_count=$((retry_count + 1))
+        continue
+    fi
+
+    # Try to read the file
+    if while IFS= read -r option || [ -n "$option" ]; do
+        if [ -n "$option" ]; then
+            global_options+=("$option")
+        fi
+    done < "$global_options_file" 2>/dev/null; then
+        # Success - break out of retry loop
+        break
+    else
+        echo "Warning: Failed to read file, attempt $((retry_count + 1))/$max_retries"
+        sleep $retry_delay
+        retry_count=$((retry_count + 1))
     fi
 done
-exec 3<&-  # Close file descriptor
+
+if [ $retry_count -eq $max_retries ]; then
+    echo "Error: Failed to read '$global_options_file' after $max_retries attempts"
+    exit 1
+fi
+
+if [ ${#global_options[@]} -eq 0 ]; then
+    echo "Warning: No options were read from '$global_options_file'"
+fi
 
 # Initialize an array to hold the constructed argument list
 # We are using an array to ensure that values containing spaces are preserved
