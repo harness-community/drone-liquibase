@@ -223,9 +223,20 @@ logfile=$(mktemp)
   exit_code=${PIPESTATUS[0]}  # Capture the exit code of the actual command
 }
 
-encoded_command_logs=$(cat "$logfile" | base64 -w 0)
+#If SKIP_SEND_ENCODED_LOGS is not set or if it is false, only then add to the DRONE_OUTPUT
+#Note: Using "${SKIP_SEND_ENCODED_LOGS:-}" ensures that if the variable SKIP_SEND_ENCODED_LOGS is not defined, it safely expands to an empty string rather than triggering an error
+if [ -z "${SKIP_SEND_ENCODED_LOGS:-}" ] || [ "SKIP_SEND_ENCODED_LOGS" = "false" ]; then
+    encoded_command_logs=$(cat "$logfile" | base64 -w 0)
+    encoded_command_logs=`echo $encoded_command_logs | tr = -`
+    echo "encoded_command_logs=$encoded_command_logs" > "$DRONE_OUTPUT"
+fi
 
-encoded_command_logs=`echo $encoded_command_logs | tr = -`
-
-echo "encoded_command_logs=$encoded_command_logs" > "$DRONE_OUTPUT"
 echo "exit_code=$exit_code" >> "$DRONE_OUTPUT"
+
+STEP_OUTPUT_FILE="/tmp/step_output.json"
+# Check if the file exists and update DRONE_OUTPUT accordingly
+if [ -f "$STEP_OUTPUT_FILE" ]; then
+  # Read the entire contents of the JSON file into 'step_output'
+  step_output=$(cat "$STEP_OUTPUT_FILE")
+  echo "step_output=${step_output}" >> "$DRONE_OUTPUT"
+fi
