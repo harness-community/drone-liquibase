@@ -8,6 +8,49 @@ for cmd in jq zstd base64; do
   fi
 done
 
+# Function to read global options with retry mechanism
+read_global_options() {
+    local file_path="$1"
+    local max_retries=3
+    local retry_count=0
+    local retry_delay=1
+    local -n options_array="$2"  # Use nameref for array parameter
+
+    while [ $retry_count -lt $max_retries ]; do
+        if [ ! -r "$file_path" ]; then
+            echo "Warning: File '$file_path' not readable, attempt $((retry_count + 1))/$max_retries"
+            sleep $retry_delay
+            retry_count=$((retry_count + 1))
+            continue
+        fi
+
+        # Try to read the file
+        if while IFS= read -r option || [ -n "$option" ]; do
+            if [ -n "$option" ]; then
+                options_array+=("$option")
+            fi
+        done < "$file_path" 2>/dev/null; then
+            # Success - break out of retry loop
+            break
+        else
+            echo "Warning: Failed to read file, attempt $((retry_count + 1))/$max_retries"
+            sleep $retry_delay
+            retry_count=$((retry_count + 1))
+        fi
+    done
+
+    if [ $retry_count -eq $max_retries ]; then
+        echo "Error: Failed to read '$file_path' after $max_retries attempts"
+        return 1
+    fi
+
+    if [ ${#options_array[@]} -eq 0 ]; then
+        echo "Warning: No options were read from '$file_path'"
+    fi
+
+    return 0
+}
+
 JAVA_HOME=$(java -XshowSettings:properties -version 2>&1 | grep 'java.home' | awk '{print $3}')
 
 #if java_home is empty, then we use a different command. Fallback case
@@ -79,41 +122,9 @@ global_options_file="/resources/global_options.txt"
 # Initialize an array to store global options
 declare -a global_options
 
-# Maximum number of retries
-max_retries=3
-retry_count=0
-retry_delay=1
-
-while [ $retry_count -lt $max_retries ]; do
-    if [ ! -r "$global_options_file" ]; then
-        echo "Warning: File '$global_options_file' not readable, attempt $((retry_count + 1))/$max_retries"
-        sleep $retry_delay
-        retry_count=$((retry_count + 1))
-        continue
-    fi
-
-    # Try to read the file
-    if while IFS= read -r option || [ -n "$option" ]; do
-        if [ -n "$option" ]; then
-            global_options+=("$option")
-        fi
-    done < "$global_options_file" 2>/dev/null; then
-        # Success - break out of retry loop
-        break
-    else
-        echo "Warning: Failed to read file, attempt $((retry_count + 1))/$max_retries"
-        sleep $retry_delay
-        retry_count=$((retry_count + 1))
-    fi
-done
-
-if [ $retry_count -eq $max_retries ]; then
-    echo "Error: Failed to read '$global_options_file' after $max_retries attempts"
+# Read global options with retry mechanism
+if ! read_global_options "$global_options_file" global_options; then
     exit 1
-fi
-
-if [ ${#global_options[@]} -eq 0 ]; then
-    echo "Warning: No options were read from '$global_options_file'"
 fi
 
 # Initialize an array to hold the constructed argument list
