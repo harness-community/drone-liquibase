@@ -215,6 +215,11 @@ echo "${command_args[@]}"
 # Create unique file to avoid override in parallel steps
 logfile=$(mktemp)
 
+# Check if the file exists and remove before running the command
+if [ -f "$STEP_OUTPUT_FILE" ]; then
+  rm -rf $STEP_OUTPUT_FILE
+fi
+
 # Execute the command using the array format
 # we are using an array to ensure that values containing spaces are preserved
 # Without an array, each word within a space is considered as a liquibase command
@@ -223,20 +228,26 @@ logfile=$(mktemp)
   exit_code=${PIPESTATUS[0]}  # Capture the exit code of the actual command
 }
 
-#If SKIP_SEND_ENCODED_LOGS is not set or if it is false, only then add to the DRONE_OUTPUT
-#Note: Using "${SKIP_SEND_ENCODED_LOGS:-}" ensures that if the variable SKIP_SEND_ENCODED_LOGS is not defined, it safely expands to an empty string rather than triggering an error
-if [ -z "${SKIP_SEND_ENCODED_LOGS:-}" ] || [ "SKIP_SEND_ENCODED_LOGS" = "false" ]; then
-    encoded_command_logs=$(cat "$logfile" | base64 -w 0)
-    encoded_command_logs=`echo $encoded_command_logs | tr = -`
-    echo "encoded_command_logs=$encoded_command_logs" > "$DRONE_OUTPUT"
-fi
-
-echo "exit_code=$exit_code" >> "$DRONE_OUTPUT"
+echo "exit_code=$exit_code" > "$DRONE_OUTPUT"
 
 STEP_OUTPUT_FILE="/tmp/step_output.json"
 # Check if the file exists and update DRONE_OUTPUT accordingly
-if [ -f "$STEP_OUTPUT_FILE" ]; then
-  # Read the entire contents of the JSON file into 'step_output'
-  step_output=$(cat "$STEP_OUTPUT_FILE")
-  echo "step_output=${step_output}" >> "$DRONE_OUTPUT"
+
+write_encoded_command_logs() {
+  local logfile="$1" drone_output="$2"
+  encoded_command_logs=$(base64 -w0 <"$logfile" | tr = -)
+  echo "encoded_command_logs=$encoded_command_logs" >> "$drone_output"
+}
+
+if [ "$GENERATE_STEP_OUTPUTS" = "true" ]; then
+    if [ -f "$STEP_OUTPUT_FILE" ]; then
+      # Read the entire contents of the JSON file into 'step_output'
+      step_output=$(cat "$STEP_OUTPUT_FILE")
+      echo "step_output=${step_output}" >> "$DRONE_OUTPUT"
+      rm -rf $STEP_OUTPUT_FILE
+    else
+        write_encoded_command_logs "$logfile" "$DRONE_OUTPUT"
+    fi
+else
+      write_encoded_command_logs "$logfile" "$DRONE_OUTPUT"
 fi
