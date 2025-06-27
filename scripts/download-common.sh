@@ -10,6 +10,7 @@ RETROFIT_VERSION="3.0.0"
 CONVERTOR_GSON_VERSION="3.0.0"
 GSON_VERSION="2.13.1"
 KOTLIN_STLIB_VERSION="2.1.21"
+BOUNCY_CASTLE_VERSION="1.78.1"
 
 
 mkdir -p /liquibase/lib
@@ -43,3 +44,9 @@ wget -O /liquibase/lib/gson-${GSON_VERSION}.jar \
   "https://repo1.maven.org/maven2/com/google/code/gson/gson/${GSON_VERSION}/gson-${GSON_VERSION}.jar"
 wget -O /liquibase/lib/kotlin-stdlib-${KOTLIN_STLIB_VERSION}.jar \
   "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/${KOTLIN_STLIB_VERSION}/kotlin-stdlib-${KOTLIN_STLIB_VERSION}.jar"
+
+# Bouncy Castle
+wget -O /liquibase/lib/bcpkix-jdk18on-${BOUNCY_CASTLE_VERSION}.jar \
+  "https://repo1.maven.org/maven2/org/bouncycastle/bcpkix-jdk18on/${BOUNCY_CASTLE_VERSION}/bcpkix-jdk18on-${BOUNCY_CASTLE_VERSION}.jar"
+wget -O /liquibase/lib/bcprov-jdk18on-${BOUNCY_CASTLE_VERSION}.jar \
+  "https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/${BOUNCY_CASTLE_VERSION}/bcprov-jdk18on-${BOUNCY_CASTLE_VERSION}.jar"
