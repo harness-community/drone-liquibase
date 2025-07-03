@@ -26,6 +26,7 @@ COPY --from=alpine /lib/libcrypto.so.3 /lib/libcrypto.so.3
 
 COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=alpine /liquibase/lib /liquibase/lib
+COPY NOTICE /liquibase/NOTICE
 
 # Copy the zstd binary from Alpine stage
 COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
