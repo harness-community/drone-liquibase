@@ -27,5 +27,6 @@ COPY --from=alpine /usr/bin/jq /usr/bin/jq
 COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
 
 COPY --from=alpine /liquibase/lib /liquibase/lib
+COPY NOTICE /liquibase/NOTICE
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--help"]
