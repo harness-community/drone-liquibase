@@ -8,7 +8,7 @@ COPY scripts/download-common.sh /scripts/download-common.sh
 RUN chmod +x /scripts/download-common.sh
 RUN /scripts/download-common.sh
 
-FROM liquibase/liquibase:4.27-alpine
+FROM liquibase/liquibase:4.33-alpine
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
 RUN lpm add mysql --global
