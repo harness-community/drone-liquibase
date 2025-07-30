@@ -13,7 +13,7 @@ RUN /scripts/download-common.sh \
  && /scripts/download-mongo.sh
 
 
-FROM liquibase/liquibase:4.32-alpine
+FROM liquibase/liquibase:4.33-alpine
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
 RUN lpm add mysql --global
