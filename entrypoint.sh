@@ -233,21 +233,11 @@ echo "exit_code=$exit_code" > "$DRONE_OUTPUT"
 STEP_OUTPUT_FILE="/tmp/step_output.json"
 # Check if the file exists and update DRONE_OUTPUT accordingly
 
-write_encoded_command_logs() {
-  local logfile="$1" drone_output="$2"
-  encoded_command_logs=$(base64 -w0 <"$logfile" | tr = -)
-  echo "encoded_command_logs=$encoded_command_logs" >> "$drone_output"
-}
-
 if [ "$GENERATE_STEP_OUTPUTS" = "true" ]; then
     if [ -f "$STEP_OUTPUT_FILE" ]; then
       # Read the entire contents of the JSON file into 'step_output'
       step_output=$(cat "$STEP_OUTPUT_FILE")
       echo "step_output=${step_output}" >> "$DRONE_OUTPUT"
       rm -rf $STEP_OUTPUT_FILE
-    else
-        write_encoded_command_logs "$logfile" "$DRONE_OUTPUT"
     fi
-else
-      write_encoded_command_logs "$logfile" "$DRONE_OUTPUT"
 fi
