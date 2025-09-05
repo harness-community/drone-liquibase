@@ -248,6 +248,4 @@ if [ "$GENERATE_STEP_OUTPUTS" = "true" ]; then
     else
         write_encoded_command_logs "$logfile" "$DRONE_OUTPUT"
     fi
-else
-      write_encoded_command_logs "$logfile" "$DRONE_OUTPUT"
 fi
