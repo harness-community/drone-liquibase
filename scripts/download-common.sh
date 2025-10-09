@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eux
 
-LIQUIBASE_DBOPS_EXT_VERSION="1.13.1"
+LIQUIBASE_DBOPS_EXT_VERSION="1.13.2"
 LIQUIBASE_DBOPS_EXT_ZSTD_VERSION="1.5.5-5"
 OKIO_VERSION="3.2.0"
 OKHTTP_VERSION="4.11.0"
@@ -11,6 +11,7 @@ CONVERTOR_GSON_VERSION="3.0.0"
 GSON_VERSION="2.13.1"
 KOTLIN_STLIB_VERSION="2.1.21"
 BOUNCY_CASTLE_VERSION="1.78.1"
+FAILSAFE_VERSION="2.4.4"
 
 
 mkdir -p /liquibase/lib
@@ -50,3 +51,8 @@ wget -O /liquibase/lib/bcpkix-jdk18on-${BOUNCY_CASTLE_VERSION}.jar \
   "https://repo1.maven.org/maven2/org/bouncycastle/bcpkix-jdk18on/${BOUNCY_CASTLE_VERSION}/bcpkix-jdk18on-${BOUNCY_CASTLE_VERSION}.jar"
 wget -O /liquibase/lib/bcprov-jdk18on-${BOUNCY_CASTLE_VERSION}.jar \
   "https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/${BOUNCY_CASTLE_VERSION}/bcprov-jdk18on-${BOUNCY_CASTLE_VERSION}.jar"
+
+#jodah failsafe retry
+wget -O /liquibase/lib/failsafe-${FAILSAFE_VERSION}.jar \
+  "https://repo1.maven.org/maven2/net/jodah/failsafe/${FAILSAFE_VERSION}/failsafe-${FAILSAFE_VERSION}.jar"
+
