@@ -1,8 +1,25 @@
-FROM alpine:3.17 as alpine
-RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0
+FROM redhat/ubi9:9.4 as ubi-stage
 
-# Install zstd
-RUN apk add --no-cache zstd=1.5.5-r0
+# Dynamic architecture detection (like flyway)
+ARG TARGETARCH
+ENV BUILD_ARCH=${TARGETARCH}
+
+# --allowerasing resolves conflicts with pre-installed minimal packages like curl-minimal
+RUN dnf install -y --nodocs --allowerasing \
+    ca-certificates \
+    openssl \
+    jq \
+    oniguruma \
+    zstd \
+    wget \
+    curl \
+    tar && \
+    dnf clean all
+
+# Install mongosh via script
+COPY scripts/install-mongosh.sh /scripts/install-mongosh.sh
+RUN chmod +x /scripts/install-mongosh.sh
+RUN /scripts/install-mongosh.sh
 
 COPY scripts/download-common.sh /scripts/download-common.sh
 RUN chmod +x /scripts/download-common.sh
@@ -12,26 +29,26 @@ RUN chmod +x /scripts/download-mongo.sh
 RUN /scripts/download-common.sh \
  && /scripts/download-mongo.sh
 
-FROM liquibase/liquibase:4.33-alpine
+FROM liquibase/liquibase:4.33
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
 RUN lpm add mysql --global
 
-# Copy OpenSSL
-COPY --from=alpine /usr/bin/openssl /usr/bin/openssl
-COPY --from=alpine /lib/libssl.so.3 /lib/libssl.so.3
-COPY --from=alpine /lib/libcrypto.so.3 /lib/libcrypto.so.3
+# Copy tools from UBI9 stage
+COPY --from=ubi-stage /usr/bin/openssl /usr/bin/openssl
+COPY --from=ubi-stage /usr/bin/jq /usr/bin/jq
+COPY --from=ubi-stage /usr/bin/zstd /usr/bin/zstd
+COPY --from=ubi-stage /usr/local/bin/mongosh /usr/local/bin/mongosh
+COPY --from=ubi-stage /etc/ssl/certs/ /etc/ssl/certs/
+COPY --from=ubi-stage /liquibase/lib /liquibase/lib
 
-
-COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=alpine /liquibase/lib /liquibase/lib
+# Copy required shared libraries
+COPY --from=ubi-stage /lib64/libssl.so.3 /lib64/libssl.so.3
+COPY --from=ubi-stage /lib64/libcrypto.so.3 /lib64/libcrypto.so.3
+COPY --from=ubi-stage /usr/lib64/libonig.so.5 /usr/lib/libonig.so.5
+COPY --from=ubi-stage /usr/lib64/libzstd.so.1 /usr/lib/libzstd.so.1
+COPY --from=ubi-stage /usr/lib64/libjq.so.1 /usr/lib/libjq.so.1
 COPY NOTICE /liquibase/NOTICE
-
-# Copy the zstd binary from Alpine stage
-COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
-# Copy jq dependencies
-COPY --from=alpine /usr/bin/jq /usr/bin/jq
-COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--help"]
