@@ -7,7 +7,6 @@ ENV BUILD_ARCH=${TARGETARCH}
 # --allowerasing resolves conflicts with pre-installed minimal packages like curl-minimal
 RUN dnf install -y --nodocs --allowerasing \
     ca-certificates \
-    openssl \
     jq \
     oniguruma \
     zstd \
@@ -35,16 +34,13 @@ COPY entrypoint.sh /entrypoint.sh
 RUN lpm add mysql --global
 
 # Copy tools from UBI9 stage
-COPY --from=ubi-stage /usr/bin/openssl /usr/bin/openssl
 COPY --from=ubi-stage /usr/bin/jq /usr/bin/jq
 COPY --from=ubi-stage /usr/bin/zstd /usr/bin/zstd
 COPY --from=ubi-stage /usr/local/bin/mongosh /usr/local/bin/mongosh
 COPY --from=ubi-stage /etc/ssl/certs/ /etc/ssl/certs/
 COPY --from=ubi-stage /liquibase/lib /liquibase/lib
 
-# Copy required shared libraries
-COPY --from=ubi-stage /lib64/libssl.so.3 /lib64/libssl.so.3
-COPY --from=ubi-stage /lib64/libcrypto.so.3 /lib64/libcrypto.so.3
+# Copy required shared libraries for custom tools
 COPY --from=ubi-stage /usr/lib64/libonig.so.5 /usr/lib/libonig.so.5
 COPY --from=ubi-stage /usr/lib64/libzstd.so.1 /usr/lib/libzstd.so.1
 COPY --from=ubi-stage /usr/lib64/libjq.so.1 /usr/lib/libjq.so.1
