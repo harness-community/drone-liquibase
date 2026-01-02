@@ -1,4 +1,4 @@
-FROM redhat/ubi9:9.4 as ubi-stage
+FROM redhat/ubi9:9.4 AS ubi-stage
 
 # Dynamic architecture detection (like flyway)
 ARG TARGETARCH
@@ -17,21 +17,34 @@ RUN dnf install -y --nodocs --allowerasing \
 
 # Install mongosh via script
 COPY scripts/install-mongosh.sh /scripts/install-mongosh.sh
-RUN chmod +x /scripts/install-mongosh.sh
-RUN /scripts/install-mongosh.sh
+RUN chmod +x /scripts/install-mongosh.sh && /scripts/install-mongosh.sh
 
 COPY scripts/download-common.sh /scripts/download-common.sh
-RUN chmod +x /scripts/download-common.sh
 COPY scripts/download-mongo.sh /scripts/download-mongo.sh
-RUN chmod +x /scripts/download-mongo.sh
-
-RUN /scripts/download-common.sh \
+RUN chmod +x /scripts/download-common.sh /scripts/download-mongo.sh \
+ && /scripts/download-common.sh \
  && /scripts/download-mongo.sh
 
-FROM liquibase/liquibase:4.33
+# Clean liquibase bits in a throwaway builder so removed jars never land in the final image
+FROM liquibase/liquibase:4.33 AS liquibase-builder
+RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
+    && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar
+
+# Fresh final image - removed jars never exist in these layers
+FROM eclipse-temurin:21-jre-jammy
+
+ENV PATH="/liquibase:${PATH}"
+
+WORKDIR /liquibase
+
+# Copy cleaned liquibase and place launchers alongside lib/internal
+COPY --from=liquibase-builder /liquibase /liquibase
+COPY --from=liquibase-builder /usr/local/bin/lpm /liquibase/lpm
+COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
+
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
-RUN lpm add mysql --global
+RUN /liquibase/lpm add mysql --global
 
 # Copy tools from UBI9 stage
 COPY --from=ubi-stage /usr/bin/jq /usr/bin/jq
