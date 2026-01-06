@@ -12,6 +12,7 @@ GSON_VERSION="2.13.1"
 KOTLIN_STLIB_VERSION="2.1.21"
 BOUNCY_CASTLE_VERSION="1.78.1"
 FAILSAFE_VERSION="2.4.4"
+GUAVA_VERSION="33.4.0-jre"
 
 
 mkdir -p /liquibase/lib
@@ -55,4 +56,8 @@ wget -O /liquibase/lib/bcprov-jdk18on-${BOUNCY_CASTLE_VERSION}.jar \
 #jodah failsafe retry
 wget -O /liquibase/lib/failsafe-${FAILSAFE_VERSION}.jar \
   "https://repo1.maven.org/maven2/net/jodah/failsafe/${FAILSAFE_VERSION}/failsafe-${FAILSAFE_VERSION}.jar"
+
+# Guava
+wget -O /liquibase/lib/guava-${GUAVA_VERSION}.jar \
+  "https://repo1.maven.org/maven2/com/google/guava/guava/${GUAVA_VERSION}/guava-${GUAVA_VERSION}.jar"
 

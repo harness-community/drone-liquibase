@@ -1,37 +1,45 @@
-FROM alpine:3.17 as alpine
-RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0
-
-# Install zstd
-RUN apk add --no-cache zstd=1.5.5-r0
+FROM alpine:3.17 AS alpine
+RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0 zstd=1.5.5-r0
 
 COPY scripts/download-common.sh /scripts/download-common.sh
-RUN chmod +x /scripts/download-common.sh
 COPY scripts/download-spanner.sh /scripts/download-spanner.sh
-RUN chmod +x /scripts/download-spanner.sh
-
-RUN /scripts/download-common.sh \
+RUN chmod +x /scripts/download-common.sh /scripts/download-spanner.sh \
+ && /scripts/download-common.sh \
  && /scripts/download-spanner.sh
 
-FROM liquibase/liquibase:4.33-alpine
+# Clean liquibase bits in a throwaway builder so removed jars never land in the final image
+FROM liquibase/liquibase:4.33-alpine AS liquibase-builder
+RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
+    && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar
+
+# Fresh final image - removed jars never exist in these layers
+FROM eclipse-temurin:21-jre-alpine
+RUN apk add --no-cache bash
+
+ENV PATH="/liquibase:${PATH}"
+WORKDIR /liquibase
+
+# Copy cleaned liquibase and place launchers alongside lib/internal
+COPY --from=liquibase-builder /liquibase /liquibase
+COPY --from=liquibase-builder /usr/local/bin/lpm /liquibase/lpm
+COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
+
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
-RUN lpm add mysql --global
+RUN /liquibase/lpm add mysql --global
 
-# Copy OpenSSL
+# Copy tools from alpine stage
 COPY --from=alpine /usr/bin/openssl /usr/bin/openssl
 COPY --from=alpine /lib/libssl.so.3 /lib/libssl.so.3
 COPY --from=alpine /lib/libcrypto.so.3 /lib/libcrypto.so.3
-
-
 COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=alpine /liquibase/lib /liquibase/lib
-COPY NOTICE /liquibase/NOTICE
-
 # Copy the zstd binary from Alpine stage
 COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
 # Copy jq dependencies
 COPY --from=alpine /usr/bin/jq /usr/bin/jq
 COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
+COPY --from=alpine /liquibase/lib /liquibase/lib
 
+COPY NOTICE /liquibase/NOTICE
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--help"]
