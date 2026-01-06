@@ -61,31 +61,55 @@ export JAVA_HOME
 
 #set common pwd
 password="changeit"
-
-# Check if Root CA file exists and import it
+USER_CERTS_DIR="/harness/certs"
+USER_TRUSTSTORE="$USER_CERTS_DIR/cacerts"
+USER_KEYSTORE="$USER_CERTS_DIR/jssecacerts"
 SSL_CA_CERT_PATH="/etc/ssl/certs/dbops/root_ca.crt"
+CLIENT_PKCS_12_PATH="$USER_CERTS_DIR/client.p12"
+CLIENT_CERT="/etc/ssl/certs/dbops/client.crt"
+CLIENT_KEY="/etc/ssl/certs/dbops/client.key"
+
+# Ensure cert directory exists with clear error handling for non-root or low-disk scenarios
+if ! mkdir -p "$USER_CERTS_DIR" 2>/dev/null; then
+    echo "Error: Failed to create directory $USER_CERTS_DIR"
+    echo "Please ensure the user has write permissions to /harness/ and sufficient disk space."
+    exit 1
+fi
+chmod 700 "$USER_CERTS_DIR"
+
 if [ -f "$SSL_CA_CERT_PATH" ]; then
-    echo "Importing self signed certificate into default JVM trustStore..."
+    # Copy default truststore to user-writable location with warning on failure
+    if [ -f "${JAVA_HOME}/lib/security/cacerts" ]; then
+        if ! cp "${JAVA_HOME}/lib/security/cacerts" "$USER_TRUSTSTORE" 2>/dev/null; then
+            echo "Warning: Failed to copy system truststore from ${JAVA_HOME}/lib/security/cacerts"
+            echo "Creating new empty truststore..."
+        else
+            echo "Copied system truststore to $USER_TRUSTSTORE"
+        fi
+    else
+        echo "Warning: System truststore not found at ${JAVA_HOME}/lib/security/cacerts"
+    fi
+    echo "Importing self signed certificate into trustStore..."
     if [ -z "$JAVA_HOME" ]; then
         echo "Error: JAVA_HOME is not set. Cannot import self signed certificate in path $SSL_CA_CERT_PATH."
         exit 1
     fi
-    keytool -importcert \
-    -alias mongodb-root-ca-cert \
-    -keystore "${JAVA_HOME}/lib/security/cacerts" \
-    -storepass "$password" \
-    -trustcacerts \
-    -file "$SSL_CA_CERT_PATH" \
-    -noprompt
-        #JAVA_OPTS is a variable that belongs to liquibase. This sets the env variables
-    export JAVA_OPTS="-Djavax.net.ssl.trustStore=$JAVA_HOME/lib/security/cacerts -Djavax.net.ssl.trustStorePassword=$password"
+    if ! keytool -importcert \
+        -alias mongodb-root-ca-cert \
+        -keystore "$USER_TRUSTSTORE" \
+        -storepass "$password" \
+        -trustcacerts \
+        -file "$SSL_CA_CERT_PATH" \
+        -noprompt 2>&1; then
+        echo "Error: Failed to import root CA certificate"
+        echo "File: $SSL_CA_CERT_PATH"
+        exit 1
+    fi
+    echo "Successfully imported root CA certificate into $USER_TRUSTSTORE"
+    # Append truststore settings to JAVA_OPTS
+    JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Djavax.net.ssl.trustStore=$USER_TRUSTSTORE"
+    JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Djavax.net.ssl.trustStorePassword=$password"
 fi
-
-
-# Check if client certificate key file exists and import it
-CLIENT_PKCS_12_PATH="/etc/ssl/certs/dbops/client.p12"
-CLIENT_CERT="/etc/ssl/certs/dbops/client.crt"
-CLIENT_KEY="/etc/ssl/certs/dbops/client.key"
 
 if [ -f "$CLIENT_CERT" ]; then
   if [ -f "$CLIENT_KEY" ]; then
@@ -93,21 +117,39 @@ if [ -f "$CLIENT_CERT" ]; then
         echo "generating pkcs12 based on $CLIENT_CERT and $CLIENT_KEY"
         openssl pkcs12 -export -in "$CLIENT_CERT" -inkey "$CLIENT_KEY" -out "$CLIENT_PKCS_12_PATH" -name client_pkcs12 -password pass:"$password"
 
-        echo "Importing client certificate into default JVM keyStore..."
+        echo "Importing client certificate into keyStore..."
         if [ -z "$JAVA_HOME" ]; then
             echo "Error: JAVA_HOME is not set. Cannot import client certificate for $CLIENT_CERT and $CLIENT_KEY"
             exit 1
         fi
-        keytool -importkeystore \
-        -destkeystore "${JAVA_HOME}/lib/security/jssecacerts" \
-        -srckeystore "$CLIENT_PKCS_12_PATH" \
-        -srcstoretype PKCS12 \
-        -alias client_pkcs12 \
-        -storepass "$password" \
-        -srcstorepass "$password"
-        #JAVA_OPTS is a variable that belongs to liquibase. This sets the env variables
-        export JAVA_OPTS="-Djavax.net.ssl.keyStore=$JAVA_HOME/lib/security/jssecacerts -Djavax.net.ssl.keyStorePassword=$password -Djavax.net.ssl.trustStore=$JAVA_HOME/lib/security/cacerts -Djavax.net.ssl.trustStorePassword=$password"
+        if ! keytool -importkeystore \
+            -destkeystore "$USER_KEYSTORE" \
+            -srckeystore "$CLIENT_PKCS_12_PATH" \
+            -srcstoretype PKCS12 \
+            -alias client_pkcs12 \
+            -storepass "$password" \
+            -srcstorepass "$password" \
+            -noprompt 2>&1; then
+            echo "Error: Failed to import client certificate into keystore"
+            echo "Source: $CLIENT_PKCS_12_PATH"
+            echo "Destination: $USER_KEYSTORE"
+            exit 1
+        fi
+        echo "Successfully imported client certificate into $USER_KEYSTORE"
+
+        # Clean up sensitive PKCS12 file now that it is imported
+        if [ -f "$CLIENT_PKCS_12_PATH" ]; then
+            rm -f "$CLIENT_PKCS_12_PATH"
+        fi
+
+        # Append keystore settings to JAVA_OPTS (truststore already appended above if present)
+        JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Djavax.net.ssl.keyStore=$USER_KEYSTORE"
+        JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Djavax.net.ssl.keyStorePassword=$password"
   fi
+fi
+
+if [ -n "$JAVA_OPTS" ]; then
+    export JAVA_OPTS
 fi
 
 # Check if PLUGIN_COMMAND is non-empty
