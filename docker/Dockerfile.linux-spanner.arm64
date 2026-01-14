@@ -1,5 +1,9 @@
-FROM alpine:3.17 AS alpine
-RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0 zstd=1.5.5-r0
+# Use Debian-based builder for downloading jars
+FROM debian:12.13-slim AS downloader
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/download-common.sh /scripts/download-common.sh
 COPY scripts/download-spanner.sh /scripts/download-spanner.sh
@@ -8,13 +12,19 @@ RUN chmod +x /scripts/download-common.sh /scripts/download-spanner.sh \
  && /scripts/download-spanner.sh
 
 # Clean liquibase bits in a throwaway builder so removed jars never land in the final image
-FROM liquibase/liquibase:4.33-alpine AS liquibase-builder
+FROM liquibase/liquibase:4.33 AS liquibase-builder
 RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
     && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar
 
-# Fresh final image - removed jars never exist in these layers
-FROM eclipse-temurin:21-jre-alpine
-RUN apk add --no-cache bash
+# Fresh final image - use glibc-based image for Spanner gRPC native library compatibility
+FROM eclipse-temurin:21-jre-jammy
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    openssl \
+    jq \
+    zstd \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/liquibase:${PATH}"
 WORKDIR /liquibase
@@ -28,17 +38,8 @@ ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
 RUN /liquibase/lpm add mysql --global
 
-# Copy tools from alpine stage
-COPY --from=alpine /usr/bin/openssl /usr/bin/openssl
-COPY --from=alpine /lib/libssl.so.3 /lib/libssl.so.3
-COPY --from=alpine /lib/libcrypto.so.3 /lib/libcrypto.so.3
-COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-# Copy the zstd binary from Alpine stage
-COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
-# Copy jq dependencies
-COPY --from=alpine /usr/bin/jq /usr/bin/jq
-COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
-COPY --from=alpine /liquibase/lib /liquibase/lib
+# Copy Spanner jars from downloader
+COPY --from=downloader /liquibase/lib /liquibase/lib
 
 COPY NOTICE /liquibase/NOTICE
 ENTRYPOINT ["/entrypoint.sh"]
