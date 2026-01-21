@@ -68,18 +68,19 @@ SSL_CA_CERT_PATH="/etc/ssl/certs/dbops/root_ca.crt"
 CLIENT_PKCS_12_PATH="$USER_CERTS_DIR/client.p12"
 CLIENT_CERT="/etc/ssl/certs/dbops/client.crt"
 CLIENT_KEY="/etc/ssl/certs/dbops/client.key"
+CLIENT_CERT_ALIAS="client_pkcs12"
 
 # Ensure cert directory exists with clear error handling for non-root or low-disk scenarios
 if ! mkdir -p "$USER_CERTS_DIR" 2>/dev/null; then
-    echo "Error: Failed to create directory $USER_CERTS_DIR"
-    echo "Please ensure the user has write permissions to /harness/ and sufficient disk space."
-    exit 1
+    echo "Warning: Failed to create directory $USER_CERTS_DIR"
 fi
 chmod 700 "$USER_CERTS_DIR"
 
 if [ -f "$SSL_CA_CERT_PATH" ]; then
-    # Copy default truststore to user-writable location with warning on failure
-    if [ -f "${JAVA_HOME}/lib/security/cacerts" ]; then
+    # Copy default truststore to user-writable location only if it doesn't already exist
+    if [ -f "$USER_TRUSTSTORE" ]; then
+        echo "Truststore already exists at $USER_TRUSTSTORE, skipping copying default trustStore"
+    elif [ -f "${JAVA_HOME}/lib/security/cacerts" ]; then
         if ! cp "${JAVA_HOME}/lib/security/cacerts" "$USER_TRUSTSTORE" 2>/dev/null; then
             echo "Warning: Failed to copy system truststore from ${JAVA_HOME}/lib/security/cacerts"
             echo "Creating new empty truststore..."
@@ -89,23 +90,28 @@ if [ -f "$SSL_CA_CERT_PATH" ]; then
     else
         echo "Warning: System truststore not found at ${JAVA_HOME}/lib/security/cacerts"
     fi
-    echo "Importing self signed certificate into trustStore..."
-    if [ -z "$JAVA_HOME" ]; then
-        echo "Error: JAVA_HOME is not set. Cannot import self signed certificate in path $SSL_CA_CERT_PATH."
-        exit 1
+
+    # Check if the root CA certificate is already imported
+    if keytool -list -keystore "$USER_TRUSTSTORE" -storepass "$password" -alias mongodb-root-ca-cert >/dev/null 2>&1; then
+        echo "Root CA certificate already exists in truststore, skipping import"
+    else
+        echo "Importing self signed certificate into trustStore..."
+        if [ -z "$JAVA_HOME" ]; then
+            echo "Warning: JAVA_HOME is not set. Cannot import self signed certificate in path $SSL_CA_CERT_PATH."
+        fi
+        if ! keytool -importcert \
+            -alias mongodb-root-ca-cert \
+            -keystore "$USER_TRUSTSTORE" \
+            -storepass "$password" \
+            -trustcacerts \
+            -file "$SSL_CA_CERT_PATH" \
+            -noprompt 2>&1; then
+            echo "Warning: Failed to import root CA certificate"
+            echo "File: $SSL_CA_CERT_PATH"
+        else
+            echo "Successfully imported root CA certificate into $USER_TRUSTSTORE"
+        fi
     fi
-    if ! keytool -importcert \
-        -alias mongodb-root-ca-cert \
-        -keystore "$USER_TRUSTSTORE" \
-        -storepass "$password" \
-        -trustcacerts \
-        -file "$SSL_CA_CERT_PATH" \
-        -noprompt 2>&1; then
-        echo "Error: Failed to import root CA certificate"
-        echo "File: $SSL_CA_CERT_PATH"
-        exit 1
-    fi
-    echo "Successfully imported root CA certificate into $USER_TRUSTSTORE"
     # Append truststore settings to JAVA_OPTS
     JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Djavax.net.ssl.trustStore=$USER_TRUSTSTORE"
     JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Djavax.net.ssl.trustStorePassword=$password"
@@ -114,32 +120,36 @@ fi
 if [ -f "$CLIENT_CERT" ]; then
   if [ -f "$CLIENT_KEY" ]; then
 
-        echo "generating pkcs12 based on $CLIENT_CERT and $CLIENT_KEY"
-        openssl pkcs12 -export -in "$CLIENT_CERT" -inkey "$CLIENT_KEY" -out "$CLIENT_PKCS_12_PATH" -name client_pkcs12 -password pass:"$password"
+        # Check if keystore already exists and contains the client certificate
+        if [ -f "$USER_KEYSTORE" ] && keytool -list -keystore "$USER_KEYSTORE" -storepass "$password" -alias "$CLIENT_CERT_ALIAS" >/dev/null 2>&1; then
+            echo "Client certificate already exists in keystore at $USER_KEYSTORE, skipping import"
+        else
+            echo "generating pkcs12 based on $CLIENT_CERT and $CLIENT_KEY"
+            openssl pkcs12 -export -in "$CLIENT_CERT" -inkey "$CLIENT_KEY" -out "$CLIENT_PKCS_12_PATH" -name "$CLIENT_CERT_ALIAS" -password pass:"$password"
 
-        echo "Importing client certificate into keyStore..."
-        if [ -z "$JAVA_HOME" ]; then
-            echo "Error: JAVA_HOME is not set. Cannot import client certificate for $CLIENT_CERT and $CLIENT_KEY"
-            exit 1
-        fi
-        if ! keytool -importkeystore \
-            -destkeystore "$USER_KEYSTORE" \
-            -srckeystore "$CLIENT_PKCS_12_PATH" \
-            -srcstoretype PKCS12 \
-            -alias client_pkcs12 \
-            -storepass "$password" \
-            -srcstorepass "$password" \
-            -noprompt 2>&1; then
-            echo "Error: Failed to import client certificate into keystore"
-            echo "Source: $CLIENT_PKCS_12_PATH"
-            echo "Destination: $USER_KEYSTORE"
-            exit 1
-        fi
-        echo "Successfully imported client certificate into $USER_KEYSTORE"
+            echo "Importing client certificate into keyStore..."
+            if [ -z "$JAVA_HOME" ]; then
+                echo "Warning: JAVA_HOME is not set. Cannot import client certificate for $CLIENT_CERT and $CLIENT_KEY"
+            fi
+            if ! keytool -importkeystore \
+                -destkeystore "$USER_KEYSTORE" \
+                -srckeystore "$CLIENT_PKCS_12_PATH" \
+                -srcstoretype PKCS12 \
+                -alias "$CLIENT_CERT_ALIAS" \
+                -storepass "$password" \
+                -srcstorepass "$password" \
+                -noprompt 2>&1; then
+                echo "Warning: Failed to import client certificate into keystore"
+                echo "Source: $CLIENT_PKCS_12_PATH"
+                echo "Destination: $USER_KEYSTORE"
+            else
+                echo "Successfully imported client certificate into $USER_KEYSTORE"
+            fi
 
-        # Clean up sensitive PKCS12 file now that it is imported
-        if [ -f "$CLIENT_PKCS_12_PATH" ]; then
-            rm -f "$CLIENT_PKCS_12_PATH"
+            # Clean up sensitive PKCS12 file now that it is imported
+            if [ -f "$CLIENT_PKCS_12_PATH" ]; then
+                rm -f "$CLIENT_PKCS_12_PATH"
+            fi
         fi
 
         # Append keystore settings to JAVA_OPTS (truststore already appended above if present)
