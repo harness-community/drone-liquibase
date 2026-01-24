@@ -14,7 +14,8 @@ RUN chmod +x /scripts/download-common.sh /scripts/download-spanner.sh \
 # Clean liquibase bits in a throwaway builder so removed jars never land in the final image
 FROM liquibase/liquibase:4.33 AS liquibase-builder
 RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
-    && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar
+    && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar \
+    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar
 
 # Fresh final image - use glibc-based image for Spanner gRPC native library compatibility
 FROM eclipse-temurin:21-jre-jammy

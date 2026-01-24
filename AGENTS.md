@@ -82,13 +82,14 @@ A whitelist of Liquibase global options (144 entries). Each line is an option na
 
 ### 3. Docker Images
 
-Three image variants are built:
+Four image variants are built:
 
 | Variant | Base Image | Use Case |
 |---------|------------|----------|
-| Standard | `liquibase/liquibase:4.33-alpine` | MySQL, PostgreSQL, SQL Server |
-| MongoDB | `liquibase/liquibase:4.33` (UBI9) | MongoDB with mongosh |
-| Spanner | `liquibase/liquibase:4.33-alpine` | Google Cloud Spanner |
+| Standard | `liquibase/liquibase:4.33-alpine` | MySQL, PostgreSQL, SQL Server (excludes Snowflake JDBC) |
+| MongoDB | `liquibase/liquibase:4.33` (UBI9) | MongoDB with mongosh (excludes Snowflake JDBC) |
+| Spanner | `liquibase/liquibase:4.33-alpine` | Google Cloud Spanner (excludes Snowflake JDBC) |
+| Snowflake | `liquibase/liquibase:4.33-alpine` | Snowflake with bundled JDBC driver |
 
 ## Setup Commands
 
@@ -103,6 +104,9 @@ docker build -t drone-liquibase-mongo -f docker/Dockerfile.linux-mongo.amd64 .
 
 # Spanner image (amd64)
 docker build -t drone-liquibase-spanner -f docker/Dockerfile.linux-spanner.amd64 .
+
+# Snowflake image (amd64)
+docker build -t drone-liquibase-snowflake -f docker/Dockerfile.linux-snowflake.amd64 .
 
 # Cross-platform build on ARM Mac
 docker buildx build --platform linux/amd64 --load -t drone-liquibase -f docker/Dockerfile.linux.amd64 .
@@ -134,6 +138,15 @@ docker run --rm \
   drone-liquibase:local
 ```
 
+## Git Workflow
+
+- **Branch naming**: `JIRA-TICKET` format (e.g., `DBOPS-1976`)
+- **Commit format**: `[type]: [JIRA-TICKET]: Description`
+  - Types: `[fix]`, `[feat]`, `[techdebt]`, `[chore]`
+  - Example: `[fix]: [DBOPS-1960]: stores and certs errors as warning`
+- **PR title format**: Same as commit format
+- **Default branch**: `main`
+
 ## Code Style
 
 - **Shell Scripts**: Use `shellcheck` for linting
@@ -141,6 +154,33 @@ docker run --rm \
 - **Quoting**: Always quote variables to handle spaces
 - **Arrays**: Use bash arrays for command arguments to preserve spaces
 - **Error Handling**: Use `set -e` in download scripts; explicit error handling in entrypoint
+
+## DOs
+
+- Always test Docker builds before committing Dockerfile changes
+- Test all variants when modifying Dockerfiles (standard, mongo, spanner)
+- Follow existing code patterns in the codebase
+- Use descriptive commit messages with Jira ticket references
+- Quote all shell variables to handle spaces correctly
+- Use bash arrays for command arguments to preserve spaces
+
+## DON'Ts
+
+- Never modify production configuration files without approval
+- Never force push to main branch
+- Never commit secrets, credentials, or sensitive data
+- Never skip git hooks (no --no-verify)
+- Don't use string concatenation for command args (use arrays instead)
+- Don't change Liquibase base image versions without team discussion
+
+## Commands to Never Run
+
+- `git push --force origin main`
+- `git push --force origin master`
+- `git commit --no-verify` (never skip hooks)
+- `git push --no-verify` (never skip hooks)
+- `rm -rf /` or any destructive recursive delete
+- `docker system prune -a` without explicit confirmation
 
 ## Important Environment Variables
 

@@ -18,6 +18,37 @@ harnesscommunity/drone-liquibase:latest
 ```
 PLUGIN_COMMAND: This specifies the liquibase command to run. The above example runs the liquibase update command
 
+## Supported Database Types
+
+This plugin supports multiple database types through different image variants:
+
+- **Standard** (`latest`): MySQL, PostgreSQL, SQL Server, and other common databases (Snowflake JDBC driver excluded)
+- **MongoDB** (`*-mongo`): MongoDB with mongosh CLI support (Snowflake JDBC driver excluded)
+- **Spanner** (`*-spanner`): Google Cloud Spanner support (Snowflake JDBC driver excluded)
+- **Snowflake** (`*-snowflake`): Snowflake with bundled JDBC driver
+
+### Using Database-Specific Variants
+
+```bash
+# For standard databases
+PLUGIN_IMAGE=plugins/drone-liquibase:latest
+PLUGIN_IMAGE=plugins/drone-liquibase:1.18.0-4.33
+
+# For MongoDB
+PLUGIN_IMAGE_MONGO=plugins/drone-liquibase:latest-mongo
+PLUGIN_IMAGE_MONGO=plugins/drone-liquibase:1.18.0-4.33-mongo
+
+# For Google Cloud Spanner
+PLUGIN_IMAGE_SPANNER=plugins/drone-liquibase:latest-spanner
+PLUGIN_IMAGE_SPANNER=plugins/drone-liquibase:1.18.0-4.33-spanner
+
+# For Snowflake
+PLUGIN_IMAGE_SNOWFLAKE=plugins/drone-liquibase:latest-snowflake
+PLUGIN_IMAGE_SNOWFLAKE=plugins/drone-liquibase:1.18.0-4.33-snowflake
+```
+
+**Note:** The standard, MongoDB, and Spanner variants have the Snowflake JDBC driver removed to reduce image size and avoid conflicts. Use the dedicated Snowflake variant for Snowflake databases.
+
 ## SSL Configuration for Non-Root Users
 
 This plugin supports SSL connections with both root and non-root users. Certificates are stored in user-writable locations.
