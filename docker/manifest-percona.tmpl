@@ -1,0 +1,19 @@
+image: harnesscommunity/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest{{/if}}-percona
+{{#if build.tags}}
+tags:
+{{#each build.tags}}
+  - {{this}}
+{{/each}}
+{{/if}}
+manifests:
+  -
+    image: harnesscommunity/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest{{/if}}-linux-percona-amd64
+    platform:
+      architecture: amd64
+      os: linux
+  -
+    image: harnesscommunity/drone-liquibase:{{#if build.tag}}{{trimPrefix "v" build.tag}}{{else}}latest{{/if}}-linux-percona-arm64
+    platform:
+      variant: v8
+      architecture: arm64
+      os: linux
