@@ -16,10 +16,16 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
 FROM eclipse-temurin:21-jre-alpine
 RUN apk add --no-cache bash
 
-# Install Percona Toolkit and MySQL Perl driver from testing repository
-RUN echo 'https://dl-cdn.alpinelinux.org/alpine/edge/testing' >> /etc/apk/repositories && \
-    apk update && \
-    apk add --no-cache percona-toolkit perl-dbd-mysql
+# Using v3.7.1 (stable) for MySQL 8.0.22+ compatibility
+RUN apk add --no-cache perl perl-dbi perl-dbd-mysql perl-time-hires && \
+    apk add --no-cache --virtual .build-deps wget && \
+    wget -O /tmp/percona-toolkit.tar.gz https://github.com/percona/percona-toolkit/archive/refs/tags/v3.7.1.tar.gz && \
+    tar -xzf /tmp/percona-toolkit.tar.gz -C /tmp && \
+    cd /tmp/percona-toolkit-3.7.1/bin && \
+    install -m 0755 pt-* /usr/local/bin/ && \
+    cd / && \
+    rm -rf /tmp/percona-toolkit* && \
+    apk del .build-deps
 
 ENV PATH="/liquibase:${PATH}"
 WORKDIR /liquibase
