@@ -179,6 +179,33 @@ if ! read_global_options "$global_options_file" global_options; then
     exit 1
 fi
 
+# Kerberos Authentication Support, if Kerberos is enabled (PLUGIN_KERBEROS_USER_PRINCIPAL must be set)
+if [ -n "$PLUGIN_KERBEROS_USER_PRINCIPAL" ]; then
+
+    echo "Initiating kerberos authentication for principal: $PLUGIN_KERBEROS_USER_PRINCIPAL"
+    if [ -n "$PLUGIN_KERBEROS_PASSWORD" ]; then
+        if ! echo "$PLUGIN_KERBEROS_PASSWORD" | kinit -f "$PLUGIN_KERBEROS_USER_PRINCIPAL"; then
+            echo "Error: Password-Based Kerberos authentication kinit failed"
+            exit 1
+        fi
+    elif [ -n "$PLUGIN_KERBEROS_KEYTAB_FILE_PATH" ]; then
+        if [ ! -f "$PLUGIN_KERBEROS_KEYTAB_FILE_PATH" ]; then
+            echo "Error: Keytab file not found: $PLUGIN_KERBEROS_KEYTAB_FILE_PATH"
+            exit 1
+        fi
+        if ! kinit -f -k -t "$PLUGIN_KERBEROS_KEYTAB_FILE_PATH" "$PLUGIN_KERBEROS_USER_PRINCIPAL"; then
+            echo "Error: Keytab-Based Kerberos authentication kinit failed"
+            exit 1
+        fi
+    fi
+    echo "Kerberos authentication successful for principal: $PLUGIN_KERBEROS_USER_PRINCIPAL"
+    trap 'kdestroy 2>/dev/null' EXIT
+
+    # Set Kerberos configuration file path for Java
+    JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Doracle.net.authentication_services=KERBEROS5"
+    export JAVA_OPTS
+fi
+
 # Initialize an array to hold the constructed argument list
 # We are using an array to ensure that values containing spaces are preserved
 # Without an array, each word within a space is considered as a liquibase command
