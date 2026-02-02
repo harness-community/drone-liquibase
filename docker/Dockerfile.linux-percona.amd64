@@ -17,11 +17,12 @@ FROM eclipse-temurin:21-jre-alpine
 RUN apk add --no-cache bash
 
 # Using v3.7.1 (stable) for MySQL 8.0.22+ compatibility
+ENV PERCONA_TOOLKIT_VERSION="3.7.1"
 RUN apk add --no-cache perl perl-dbi perl-dbd-mysql perl-time-hires && \
     apk add --no-cache --virtual .build-deps wget && \
-    wget -O /tmp/percona-toolkit.tar.gz https://github.com/percona/percona-toolkit/archive/refs/tags/v3.7.1.tar.gz && \
+    wget -O /tmp/percona-toolkit.tar.gz https://github.com/percona/percona-toolkit/archive/refs/tags/v${PERCONA_TOOLKIT_VERSION}.tar.gz && \
     tar -xzf /tmp/percona-toolkit.tar.gz -C /tmp && \
-    cd /tmp/percona-toolkit-3.7.1/bin && \
+    cd /tmp/percona-toolkit-${PERCONA_TOOLKIT_VERSION}/bin && \
     install -m 0755 pt-* /usr/local/bin/ && \
     cd / && \
     rm -rf /tmp/percona-toolkit* && \
