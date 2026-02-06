@@ -179,6 +179,46 @@ if ! read_global_options "$global_options_file" global_options; then
     exit 1
 fi
 
+# Initialize cleanup actions array
+declare -a cleanup_actions
+cleanup() {
+    for action in "${cleanup_actions[@]}"; do
+        eval "$action" 2>/dev/null || true
+    done
+}
+# it will execute whatever is in cleanup_actions at exit time
+trap cleanup EXIT
+
+# Kerberos Authentication Support, if Kerberos is enabled (PLUGIN_KERBEROS_USER_PRINCIPAL must be set)
+if [ -n "$PLUGIN_KERBEROS_USER_PRINCIPAL" ]; then
+
+    echo "Initiating kerberos authentication for principal: $PLUGIN_KERBEROS_USER_PRINCIPAL"
+    if [ -n "$PLUGIN_KERBEROS_PASSWORD" ]; then
+        if ! echo "$PLUGIN_KERBEROS_PASSWORD" | kinit -f "$PLUGIN_KERBEROS_USER_PRINCIPAL"; then
+            echo "Error: Password-Based Kerberos authentication kinit failed"
+            exit 1
+        fi
+    elif [ -n "$PLUGIN_KERBEROS_KEYTAB_FILE_PATH" ]; then
+        if [ ! -f "$PLUGIN_KERBEROS_KEYTAB_FILE_PATH" ]; then
+            echo "Error: Keytab file not found: $PLUGIN_KERBEROS_KEYTAB_FILE_PATH"
+            exit 1
+        fi
+        if ! kinit -f -k -t "$PLUGIN_KERBEROS_KEYTAB_FILE_PATH" "$PLUGIN_KERBEROS_USER_PRINCIPAL"; then
+            echo "Error: Keytab-Based Kerberos authentication kinit failed"
+            exit 1
+        fi
+    else
+        echo "Error: PLUGIN_KERBEROS_USER_PRINCIPAL requires an authentication method. Set either PLUGIN_KERBEROS_PASSWORD or PLUGIN_KERBEROS_KEYTAB_FILE_PATH"
+        exit 1
+    fi
+    echo "Kerberos authentication successful for principal: $PLUGIN_KERBEROS_USER_PRINCIPAL"
+    cleanup_actions+=('kdestroy 2>/dev/null')
+
+    # Set Kerberos configuration file path for Java
+    JAVA_OPTS="${JAVA_OPTS:+$JAVA_OPTS }-Doracle.net.authentication_services=KERBEROS5"
+    export JAVA_OPTS
+fi
+
 # Initialize an array to hold the constructed argument list
 # We are using an array to ensure that values containing spaces are preserved
 # Without an array, each word within a space is considered as a liquibase command
@@ -202,7 +242,7 @@ command_args+=("$PLUGIN_COMMAND")
 if [ -n "$PLUGIN_SUBSTITUTE_LIQUIBASE" ]; then
     # Step 1: Create temporary file for decoded content
     substitute_properties_decoded=$(mktemp)
-    trap 'rm -f "$substitute_properties_decoded"' EXIT
+    cleanup_actions+=("rm -f \"$substitute_properties_decoded\"")
 
     # Step 2: Base64 decode directly to file
     if ! echo "$PLUGIN_SUBSTITUTE_LIQUIBASE" | base64 -d > "$substitute_properties_decoded" 2>/dev/null; then
