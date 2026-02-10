@@ -11,7 +11,8 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
     && rm -f /liquibase/internal/lib/snowflake-jdbc.jar
 
 # Fresh final image - removed jars never exist in these layers
-FROM eclipse-temurin:21-jre-alpine
+# Pinned to Alpine 3.22 for dependency stability
+FROM eclipse-temurin:21.0.9_10-jre-alpine-3.22
 RUN apk add --no-cache bash krb5
 
 ENV PATH="/liquibase:${PATH}"
