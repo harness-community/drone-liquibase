@@ -6,13 +6,16 @@ RUN chmod +x /scripts/download-common.sh && /scripts/download-common.sh
 
 # Clean liquibase bits in a throwaway builder so removed jars never land in the final image
 FROM liquibase/liquibase:4.33-alpine AS liquibase-builder
+USER 0
 RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
     && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar \
-    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar
+    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar \
+    && rm -f /liquibase/internal/lib/mssql-jdbc*.jar \
+    && rm -f /liquibase/bin/lpm
 
 # Fresh final image - removed jars never exist in these layers
-# Pinned to Alpine 3.22 for dependency stability
-FROM eclipse-temurin:21.0.9_10-jre-alpine-3.22
+# Pinned to Alpine 3.23 for dependency stability
+FROM eclipse-temurin:21.0.10_7-jre-alpine-3.23
 RUN apk add --no-cache bash krb5
 
 ENV PATH="/liquibase:${PATH}"
@@ -20,12 +23,10 @@ WORKDIR /liquibase
 
 # Copy cleaned liquibase and place launchers alongside lib/internal
 COPY --from=liquibase-builder /liquibase /liquibase
-COPY --from=liquibase-builder /usr/local/bin/lpm /liquibase/lpm
 COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
 
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
-RUN /liquibase/lpm add mysql --global
 
 # Copy tools from alpine stage
 COPY --from=alpine /usr/bin/openssl /usr/bin/openssl

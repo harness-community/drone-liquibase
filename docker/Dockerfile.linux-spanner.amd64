@@ -13,12 +13,15 @@ RUN chmod +x /scripts/download-common.sh /scripts/download-spanner.sh \
 
 # Clean liquibase bits in a throwaway builder so removed jars never land in the final image
 FROM liquibase/liquibase:4.33 AS liquibase-builder
+USER 0
 RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
     && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar \
-    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar
+    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar \
+    && rm -f /liquibase/internal/lib/mssql-jdbc*.jar \
+    && rm -f /liquibase/bin/lpm
 
 # Fresh final image - use glibc-based image for Spanner gRPC native library compatibility
-FROM eclipse-temurin:21-jre-jammy
+FROM eclipse-temurin:21.0.10_7-jre-jammy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     openssl \
@@ -32,12 +35,10 @@ WORKDIR /liquibase
 
 # Copy cleaned liquibase and place launchers alongside lib/internal
 COPY --from=liquibase-builder /liquibase /liquibase
-COPY --from=liquibase-builder /usr/local/bin/lpm /liquibase/lpm
 COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
 
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
-RUN /liquibase/lpm add mysql --global
 
 # Copy Spanner jars from downloader
 COPY --from=downloader /liquibase/lib /liquibase/lib

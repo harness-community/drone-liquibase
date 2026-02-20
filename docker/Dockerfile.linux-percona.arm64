@@ -8,15 +8,21 @@ RUN chmod +x /scripts/download-percona.sh && /scripts/download-percona.sh
 
 # Clean liquibase bits in a throwaway builder so removed jars never land in the final image
 FROM liquibase/liquibase:4.33-alpine AS liquibase-builder
+USER 0
 RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
     && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar \
-    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar
+    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar \
+    && rm -f /liquibase/internal/lib/mssql-jdbc*.jar \
+    && rm -f /liquibase/bin/lpm
 
 # Fresh final image - removed jars never exist in these layers
-# Pinned to Alpine 3.22 to lock mariadb-connector-c 3.3.10 (compatible with self-signed certs)
-# mariadb-connector-c 3.4+ enforces SSL verification by default (MDEV-31857)
-FROM eclipse-temurin:21.0.9_10-jre-alpine-3.22
+# Pinned to Alpine 3.23 for dependency stability
+FROM eclipse-temurin:21.0.10_7-jre-alpine-3.23
 RUN apk add --no-cache bash
+
+# Bypass mariadb-connector-c 3.4+ strict SSL peer verification (MDEV-31857)
+# Allows self-signed certificates in Percona connections without pinning to Alpine 3.22
+ENV MARIADB_TLS_DISABLE_PEER_VERIFICATION=1
 
 # Using v3.7.1 (stable) for MySQL 8.0.22+ compatibility
 ENV PERCONA_TOOLKIT_VERSION="3.7.1"
@@ -35,12 +41,10 @@ WORKDIR /liquibase
 
 # Copy cleaned liquibase and place launchers alongside lib/internal
 COPY --from=liquibase-builder /liquibase /liquibase
-COPY --from=liquibase-builder /usr/local/bin/lpm /liquibase/lpm
 COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
 
 ADD resources /resources
 COPY entrypoint.sh /entrypoint.sh
-RUN /liquibase/lpm add mysql --global
 
 # Copy tools from alpine stage
 COPY --from=alpine /usr/bin/openssl /usr/bin/openssl

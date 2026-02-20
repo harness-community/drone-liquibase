@@ -1,0 +1,32 @@
+---
+description: Git commit message format convention for the project
+alwaysApply: true
+---
+
+# Commit Message Convention
+
+All git commit messages MUST follow this format:
+
+```
+[type]: [DBOPS-<ticket>]: <description>
+```
+
+## Fields
+
+- **type**: One of `fix`, `feat`, `techdebt`, `chore`
+- **ticket**: The DBOPS Jira ticket number (e.g., `DBOPS-2054`)
+- **description**: A concise summary of the change
+
+## Examples
+
+```
+[fix]: [DBOPS-1960]: stores and certs errors as warning
+[feat]: [DBOPS-2054]: add mysql-connector-j to download-common.sh
+[techdebt]: [DBOPS-1980]: remove unused lpm binary from final images
+[chore]: [DBOPS-2010]: bump Eclipse Temurin to 21.0.10_7
+```
+
+## Rules
+
+- PR titles follow the same format
+- If no Jira ticket exists, ask the user before committing
