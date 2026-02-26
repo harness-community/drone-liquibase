@@ -22,7 +22,10 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
 
 # Fresh final image - use glibc-based image for Spanner gRPC native library compatibility
 FROM eclipse-temurin:21.0.10_7-jre-jammy
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Upgrade packages to fix security vulnerabilities
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
     bash \
     openssl \
     jq \

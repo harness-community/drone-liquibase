@@ -18,7 +18,9 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
 # Fresh final image - removed jars never exist in these layers
 # Pinned to Alpine 3.23 for dependency stability
 FROM eclipse-temurin:21.0.10_7-jre-alpine-3.23
-RUN apk add --no-cache bash
+# Upgrade packages to fix security vulnerabilities
+RUN apk upgrade --no-cache && \
+    apk add --no-cache bash
 
 # Bypass mariadb-connector-c 3.4+ strict SSL peer verification (MDEV-31857)
 # Allows self-signed certificates in Percona connections without pinning to Alpine 3.22

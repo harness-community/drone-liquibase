@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.harness</groupId>
+    <artifactId>liquibase-cloudsql-deps</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Liquibase Cloud SQL Dependencies</name>
+    <description>
+        Shaded JAR containing all Cloud SQL Socket Factory dependencies for Liquibase.
+        Uses Maven Shade Plugin to properly merge SPI (META-INF/services) files
+        and avoid class conflicts.
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Cloud SQL Socket Factory -->
+        <cloud-sql-socket-factory.version>1.28.1</cloud-sql-socket-factory.version>
+    </properties>
+
+    <dependencies>
+        <!-- Google Cloud SQL Socket Factory for PostgreSQL -->
+        <dependency>
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>postgres-socket-factory</artifactId>
+            <version>${cloud-sql-socket-factory.version}</version>
+        </dependency>
+
+        <!-- Google Cloud SQL Socket Factory for MySQL (Connector/J 8.x) -->
+        <dependency>
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>mysql-socket-factory-connector-j-8</artifactId>
+            <version>${cloud-sql-socket-factory.version}</version>
+        </dependency>
+
+        <!-- Google Cloud SQL Socket Factory for SQL Server -->
+        <dependency>
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>cloud-sql-connector-jdbc-sqlserver</artifactId>
+            <version>${cloud-sql-socket-factory.version}</version>
+        </dependency>
+
+        <!-- Google Cloud SQL Socket Factory for MariaDB -->
+        <dependency>
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>mariadb-socket-factory</artifactId>
+            <version>${cloud-sql-socket-factory.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Don't create dependency-reduced pom -->
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+
+                            <!-- Final JAR name -->
+                            <finalName>cloudsql-socket-factory-all</finalName>
+
+                            <transformers>
+                                <!-- Properly merge META-INF/services files (SPI) -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+
+                                <!-- Merge META-INF/MANIFEST.MF -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"/>
+
+                                <!-- Append license files instead of overwriting -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <addHeader>false</addHeader>
+                                </transformer>
+                            </transformers>
+
+                            <filters>
+                                <!-- Exclude signatures from dependencies (prevents security exceptions) -->
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <!-- Exclude dnsjava SPI that references missing provider class -->
+                                        <!-- https://github.com/dnsjava/dnsjava/issues/338 -->
+                                        <exclude>META-INF/services/java.net.spi.InetAddressResolverProvider</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+
+                            <!-- Exclude JARs already present in Liquibase or download-common.sh -->
+                            <artifactSet>
+                                <excludes>
+                                    <!-- Liquibase internal/lib -->
+                                    <exclude>org.slf4j:slf4j-api</exclude>
+                                    <exclude>org.mariadb.jdbc:mariadb-java-client</exclude>
+                                    <exclude>com.mysql:mysql-connector-j</exclude>
+                                    <exclude>org.postgresql:postgresql</exclude>
+                                    <exclude>com.google.code.gson:gson</exclude>
+                                    <exclude>org.yaml:snakeyaml</exclude>
+                                    <exclude>org.apache.commons:commons-lang3</exclude>
+                                    <exclude>commons-io:commons-io</exclude>
+                                    <exclude>org.apache.commons:commons-text</exclude>
+                                    <exclude>org.apache.commons:commons-collections4</exclude>
+
+                                    <!-- download-common.sh -->
+                                    <exclude>com.google.guava:guava</exclude>
+                                    <exclude>com.google.guava:listenablefuture</exclude>
+                                    <exclude>com.squareup.okhttp3:okhttp</exclude>
+                                    <exclude>com.squareup.okio:okio</exclude>
+                                    <exclude>com.squareup.okio:okio-jvm</exclude>
+                                    <exclude>com.squareup.okhttp3:logging-interceptor</exclude>
+                                    <exclude>com.squareup.retrofit2:retrofit</exclude>
+                                    <exclude>com.squareup.retrofit2:converter-gson</exclude>
+                                    <exclude>org.jetbrains.kotlin:kotlin-stdlib</exclude>
+                                    <exclude>org.jetbrains.kotlin:kotlin-stdlib-common</exclude>
+                                    <exclude>org.jetbrains.kotlin:kotlin-stdlib-jdk7</exclude>
+                                    <exclude>org.jetbrains.kotlin:kotlin-stdlib-jdk8</exclude>
+                                    <exclude>org.bouncycastle:bcprov-jdk18on</exclude>
+                                    <exclude>org.bouncycastle:bcpkix-jdk18on</exclude>
+                                    <exclude>net.jodah:failsafe</exclude>
+                                    <exclude>com.github.luben:zstd-jni</exclude>
+                                </excludes>
+                            </artifactSet>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
