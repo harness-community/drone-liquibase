@@ -1,0 +1,175 @@
+pipeline:
+  name: cloudsqlSocketFactoryRelease
+  identifier: cloudsqlSocketFactoryRelease
+  projectIdentifier: CD
+  orgIdentifier: default
+  tags:
+    DBOPS: ""
+  stages:
+    - stage:
+        name: build and upload to gar
+        identifier: build_and_upload_to_gar
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: cdcie
+              namespace: dbops
+              automountServiceAccountToken: true
+              nodeSelector:
+                purpose: DBOPSautomationExecution
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: build_and_upload_cloudsql_jar
+                  identifier: build_and_upload_cloudsql_jar
+                  spec:
+                    connectorRef: docker_registry
+                    image: maven:3.9-eclipse-temurin-17
+                    shell: Sh
+                    command: |-
+                      echo <+secrets.getValue("DBOPS_HARNESS_MAVEN_PUBLIC_REPO_KEY")> | base64 --decode > ./sa-token.json
+
+                      export GOOGLE_APPLICATION_CREDENTIALS="sa-token.json"
+
+                      PROJECT_ID="gar-prod-setup"
+                      REPO="harness-maven-public"
+                      GROUP_ID="io/harness"
+                      ARTIFACT_ID="cloudsql-socket-factory"
+
+                      # Get current version from GAR (if exists)
+                      currentVersion=$(curl -s https://us-maven.pkg.dev/$PROJECT_ID/$REPO/$GROUP_ID/$ARTIFACT_ID/maven-metadata.xml | grep release | sed "s/.*<release>\([^<]*\)<\/release>.*/\1/" || echo "none")
+                      echo "Current version: $currentVersion"
+
+                      export currentVer=$currentVersion
+
+                      # Use tag as new version, or pipeline input
+                      export newVer=<+codebase.tag>
+
+                      if [ -z "$newVer" ]
+                      then
+                        echo "new version is empty, using pipeline variable"
+                        newVer=<+pipeline.variables.version>
+                      fi
+
+                      if [ -z "$newVer" ]
+                      then
+                        echo "new version is still empty"
+                        exit 1
+                      fi
+
+                      echo "New version: $newVer"
+
+                      # Navigate to dependencies directory and build
+                      cd dependencies
+
+                      # Update version in pom.xml
+                      mvn -q versions:set -DnewVersion=$newVer
+
+                      # Update groupId to io.harness for GAR upload
+                      sed -i 's|<groupId>io.harness</groupId>|<groupId>io.harness</groupId>|g' pom.xml
+                      sed -i 's|<artifactId>liquibase-cloudsql-deps</artifactId>|<artifactId>cloudsql-socket-factory</artifactId>|g' pom.xml
+
+                      # Add distribution management for GAR
+                      sed -i '/<\/project>/i \
+                      <distributionManagement>\
+                        <repository>\
+                          <id>artifact-registry</id>\
+                          <url>artifactregistry://us-maven.pkg.dev/gar-prod-setup/harness-maven-public</url>\
+                        </repository>\
+                      </distributionManagement>' pom.xml
+
+                      # Add wagon extension for GAR
+                      sed -i '/<\/project>/i \
+                      <build>\
+                        <extensions>\
+                          <extension>\
+                            <groupId>com.google.cloud.artifactregistry</groupId>\
+                            <artifactId>artifactregistry-maven-wagon</artifactId>\
+                            <version>2.2.1</version>\
+                          </extension>\
+                        </extensions>\
+                      </build>' pom.xml
+
+                      # Build the shaded JAR
+                      mvn -q clean package
+
+                      # Deploy to GAR
+                      mvn -q deploy -DskipTests
+
+                      echo "Successfully uploaded cloudsql-socket-factory-$newVer.jar to GAR"
+                    outputVariables:
+                      - name: currentVer
+                      - name: newVer
+                  when:
+                    stageStatus: Success
+          caching:
+            enabled: false
+            paths: []
+          buildIntelligence:
+            enabled: false
+        description: "Build and upload CloudSQL Socket Factory shaded JAR to GAR"
+    - stage:
+        name: notify
+        identifier: notify
+        description: ""
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: ShellScript
+                  name: notify_status
+                  identifier: notify_status
+                  spec:
+                    shell: Bash
+                    source:
+                      type: Inline
+                      spec:
+                        script: |-
+                          status=<+pipeline.stages.build_and_upload_to_gar.status>
+                          executionLink=<+pipeline.executionUrl>
+                          curr_version=<+pipeline.stages.build_and_upload_to_gar.spec.execution.steps.build_and_upload_cloudsql_jar.output.outputVariables.currentVer>
+                          new_version=<+pipeline.stages.build_and_upload_to_gar.spec.execution.steps.build_and_upload_cloudsql_jar.output.outputVariables.newVer>
+
+                          echo "current_version: $curr_version"
+                          echo "new_version: $new_version"
+                          echo "execution_link: $executionLink"
+
+                          if [[ "$status" = "SUCCEEDED" || "$status" = "IgnoreFailed" ]]
+                          then
+                            echo "cloudsql-socket-factory GAR Publish Successful"
+                            curl -X POST --data-urlencode "payload={\"type\": \"mrkdwn\", \"text\":\"*cloudsql-socket-factory GAR Publish Successful* :white_check_mark: : <"$executionLink"|execution_link> \n *current_version*: "$curr_version" \n *new_version*: "$new_version" \n \", \"icon_emoji\": \":harnesshd:\"}" <+stage.variables.slack_webhook_url>
+                          else
+                            echo "cloudsql-socket-factory GAR Publish Failed"
+                            curl -X POST --data-urlencode "payload={\"type\": \"mrkdwn\", \"text\":\"*cloudsql-socket-factory GAR Publish Failed* :x: : <"$executionLink"|execution_link> \n *current_version*: "$curr_version" \n *new_version*: "$new_version" \n \", \"icon_emoji\": \":harnesshd:\"}" <+stage.variables.slack_webhook_url>
+                          fi
+                    environmentVariables: []
+                    outputVariables: []
+                    executionTarget: {}
+                  timeout: 10m
+        tags: {}
+        when:
+          pipelineStatus: All
+        variables:
+          - name: slack_webhook_url
+            type: Secret
+            description: ""
+            value: DBOPS_SLACK_WEBHOOK_URL
+  allowStageExecutions: true
+  variables:
+    - name: version
+      type: String
+      description: "Version to publish (used if no git tag)"
+      required: false
+      value: <+input>
+  properties:
+    ci:
+      codebase:
+        repoName: liquibase-drone-plugin
+        build: <+input>
+        sparseCheckout: []
