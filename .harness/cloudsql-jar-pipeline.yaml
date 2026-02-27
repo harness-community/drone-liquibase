@@ -41,11 +41,8 @@ pipeline:
                       export PATH=$M2_HOME/bin:$PATH
 
                       echo <+secrets.getValue("DBOPS_HARNESS_MAVEN_PUBLIC_REPO_KEY")> | base64 --decode > ./sa-token.json
-
-                      export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/sa-token.json"
-
-                      # Authenticate with gcloud
-                      gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
+                      cat ./sa-token.json | head -n 10
+                      export GOOGLE_APPLICATION_CREDENTIALS="sa-token.json"
 
                       PROJECT_ID="gar-prod-setup"
                       REPO="harness-maven-public"
@@ -79,10 +76,10 @@ pipeline:
                       cd dependencies
 
                       # Update version in pom.xml
-                      mvn -q versions:set -DnewVersion=$newVer
+                      mvn -q versions:set -DnewVersion=$newVer -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
 
                       # Build the shaded JAR and deploy to GAR
-                      mvn -q clean deploy -DskipTests
+                      mvn -q clean deploy -DskipTests -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
 
                       echo "Successfully uploaded cloudsql-socket-factory-$newVer.jar to GAR"
                     outputVariables:
