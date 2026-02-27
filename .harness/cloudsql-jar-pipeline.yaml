@@ -70,36 +70,8 @@ pipeline:
                       # Update version in pom.xml
                       mvn -q versions:set -DnewVersion=$newVer
 
-                      # Update groupId to io.harness for GAR upload
-                      sed -i 's|<groupId>io.harness</groupId>|<groupId>io.harness</groupId>|g' pom.xml
-                      sed -i 's|<artifactId>liquibase-cloudsql-deps</artifactId>|<artifactId>cloudsql-socket-factory</artifactId>|g' pom.xml
-
-                      # Add distribution management for GAR
-                      sed -i '/<\/project>/i \
-                      <distributionManagement>\
-                        <repository>\
-                          <id>artifact-registry</id>\
-                          <url>artifactregistry://us-maven.pkg.dev/gar-prod-setup/harness-maven-public</url>\
-                        </repository>\
-                      </distributionManagement>' pom.xml
-
-                      # Add wagon extension for GAR
-                      sed -i '/<\/project>/i \
-                      <build>\
-                        <extensions>\
-                          <extension>\
-                            <groupId>com.google.cloud.artifactregistry</groupId>\
-                            <artifactId>artifactregistry-maven-wagon</artifactId>\
-                            <version>2.2.1</version>\
-                          </extension>\
-                        </extensions>\
-                      </build>' pom.xml
-
-                      # Build the shaded JAR
-                      mvn -q clean package
-
-                      # Deploy to GAR
-                      mvn -q deploy -DskipTests
+                      # Build the shaded JAR and deploy to GAR
+                      mvn -q clean deploy -DskipTests
 
                       echo "Successfully uploaded cloudsql-socket-factory-$newVer.jar to GAR"
                     outputVariables:
