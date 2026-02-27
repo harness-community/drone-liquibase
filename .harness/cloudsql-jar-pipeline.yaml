@@ -29,12 +29,23 @@ pipeline:
                   identifier: build_and_upload_cloudsql_jar
                   spec:
                     connectorRef: docker_registry
-                    image: maven:3.9-eclipse-temurin-17
+                    image: google/cloud-sdk:latest
                     shell: Sh
                     command: |-
+                      # Install JDK 17 and Maven
+                      apt -qq update
+                      apt -qq install openjdk-17-jdk maven -y
+                      export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+                      export PATH=$JAVA_HOME/bin:$PATH
+                      export M2_HOME=/usr/share/maven
+                      export PATH=$M2_HOME/bin:$PATH
+
                       echo <+secrets.getValue("DBOPS_HARNESS_MAVEN_PUBLIC_REPO_KEY")> | base64 --decode > ./sa-token.json
 
-                      export GOOGLE_APPLICATION_CREDENTIALS="sa-token.json"
+                      export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/sa-token.json"
+
+                      # Authenticate with gcloud
+                      gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
 
                       PROJECT_ID="gar-prod-setup"
                       REPO="harness-maven-public"
@@ -50,13 +61,13 @@ pipeline:
                       # Use tag as new version, or pipeline input
                       export newVer=<+codebase.tag>
 
-                      if [ -z "$newVer" ]
+                      if [ -z "$newVer" ] || [ "$newVer" = "null" ]
                       then
-                        echo "new version is empty, using pipeline variable"
+                        echo "new version is empty or null, using pipeline variable"
                         newVer=<+pipeline.variables.version>
                       fi
 
-                      if [ -z "$newVer" ]
+                      if [ -z "$newVer" ] || [ "$newVer" = "null" ]
                       then
                         echo "new version is still empty"
                         exit 1
