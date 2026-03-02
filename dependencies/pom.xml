@@ -17,8 +17,8 @@
     </description>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <!-- Cloud SQL Socket Factory -->
@@ -97,8 +97,8 @@
                             <!-- Don't create dependency-reduced pom -->
                             <createDependencyReducedPom>false</createDependencyReducedPom>
 
-                            <!-- Final JAR name -->
-                            <finalName>cloudsql-socket-factory-all</finalName>
+                            <!-- Replace the main artifact with shaded JAR -->
+                            <!-- Removed finalName so shade plugin overwrites the main artifact -->
 
                             <transformers>
                                 <!-- Properly merge META-INF/services files (SPI) -->

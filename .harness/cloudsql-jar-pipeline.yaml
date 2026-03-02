@@ -32,9 +32,9 @@ pipeline:
                     image: google/cloud-sdk:latest
                     shell: Sh
                     command: |-
-                      # Install JDK 21 and Maven
+                      # Install JDK 17 and Maven
                       apt -qq update
-                      apt -qq install openjdk-21-jdk maven -y
+                      apt -qq install openjdk-17-jdk maven -y
                       export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
                       export PATH=$JAVA_HOME/bin:$PATH
                       export M2_HOME=/usr/share/maven
