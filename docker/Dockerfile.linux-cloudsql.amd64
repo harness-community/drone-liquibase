@@ -2,7 +2,10 @@ FROM alpine:3.17 AS alpine
 RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0 zstd=1.5.5-r0
 
 COPY scripts/download-common.sh /scripts/download-common.sh
-RUN chmod +x /scripts/download-common.sh && /scripts/download-common.sh
+COPY scripts/download-cloudsql.sh /scripts/download-cloudsql.sh
+RUN chmod +x /scripts/download-common.sh /scripts/download-cloudsql.sh \
+ && /scripts/download-common.sh \
+ && /scripts/download-cloudsql.sh
 
 # Clean liquibase bits in a throwaway builder so removed jars never land in the final image
 FROM liquibase/liquibase:4.33-alpine AS liquibase-builder
@@ -12,23 +15,6 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
     && rm -f /liquibase/internal/lib/snowflake-jdbc.jar \
     && rm -f /liquibase/internal/lib/mssql-jdbc*.jar \
     && rm -f /liquibase/bin/lpm
-
-# ============================================================
-# CLOUD SQL SPECIFIC: Build shaded JAR with Maven Shade Plugin
-# This properly merges SPI (META-INF/services) files and avoids class conflicts
-# ============================================================
-FROM maven:3.9-eclipse-temurin-21 AS dependency-resolver
-
-# Copy the pom.xml that uses Maven Shade Plugin
-COPY dependencies/pom.xml /deps/pom.xml
-
-# Build the shaded JAR (combines all dependencies with proper SPI merging)
-# Clean up everything except the final JAR to minimize layer size
-RUN mvn -f /deps/pom.xml package -q && \
-    mkdir -p /output && \
-    mv /deps/target/cloudsql-socket-factory-all.jar /output/ && \
-    rm -rf /root/.m2 /deps
-# ============================================================
 
 # Fresh final image - removed jars never exist in these layers
 # Pinned to Alpine 3.23 for dependency stability
@@ -57,14 +43,8 @@ COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
 # Copy jq dependencies
 COPY --from=alpine /usr/bin/jq /usr/bin/jq
 COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
+# Copy common JARs and CloudSQL socket factory JAR from alpine stage
 COPY --from=alpine /liquibase/lib /liquibase/lib
-
-# ============================================================
-# CLOUD SQL SPECIFIC: Copy the single shaded JAR with all Cloud SQL dependencies
-# This JAR has properly merged SPI files and no class conflicts
-# ============================================================
-COPY --from=dependency-resolver /output/cloudsql-socket-factory-all.jar /liquibase/lib/
-# ============================================================
 
 COPY NOTICE /liquibase/NOTICE
 ENTRYPOINT ["/entrypoint.sh"]
