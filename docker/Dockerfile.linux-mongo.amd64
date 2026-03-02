@@ -5,9 +5,7 @@ ARG TARGETARCH
 ENV BUILD_ARCH=${TARGETARCH}
 
 # --allowerasing resolves conflicts with pre-installed minimal packages like curl-minimal
-# Upgrade packages to fix security vulnerabilities
-RUN dnf upgrade -y && \
-    dnf install -y --nodocs --allowerasing \
+RUN dnf install -y --nodocs --allowerasing \
     ca-certificates \
     jq \
     oniguruma \
