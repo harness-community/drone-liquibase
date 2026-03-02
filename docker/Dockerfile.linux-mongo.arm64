@@ -36,6 +36,8 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
 
 # Fresh final image - removed jars never exist in these layers
 FROM eclipse-temurin:21.0.10_7-jre-jammy
+# Upgrade libpng to fix CVE-2026-25646
+RUN apt-get update && apt-get upgrade -y libpng16-16 && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/liquibase:${PATH}"
 

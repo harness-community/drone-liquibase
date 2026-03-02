@@ -52,10 +52,6 @@ pipeline:
                       GROUP_ID="io/harness"
                       ARTIFACT_ID="cloudsql-socket-factory"
 
-                      # Test GAR access
-                      echo "Testing GAR repository access..."
-                      gcloud artifacts repositories describe $REPO --location=us --project=$PROJECT_ID
-
                       # Get current version from GAR (if exists)
                       currentVersion=$(curl -s https://us-maven.pkg.dev/$PROJECT_ID/$REPO/$GROUP_ID/$ARTIFACT_ID/maven-metadata.xml | grep release | sed "s/.*<release>\([^<]*\)<\/release>.*/\1/" || echo "none")
                       echo "Current version: $currentVersion"
