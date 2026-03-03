@@ -143,11 +143,6 @@ pipeline:
                       GROUP_ID="io/harness"
                       ARTIFACT_ID="cloudsql-socket-factory"
 
-                      # Test GAR access
-                      echo "Testing GAR repository access..."
-                      gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-                      gcloud artifacts repositories describe $REPO --location=us --project=$PROJECT_ID
-
                       # Get current version from GAR (if exists)
                       currentVersion=$(curl -s https://us-maven.pkg.dev/$PROJECT_ID/$REPO/$GROUP_ID/$ARTIFACT_ID/maven-metadata.xml | grep release | sed "s/.*<release>\([^<]*\)<\/release>.*/\1/" || echo "none")
                       echo "Current version: $currentVersion"
@@ -178,7 +173,7 @@ pipeline:
                       mvn -q versions:set -DnewVersion=$newVer -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
 
                       # Build the shaded JAR and deploy to GAR with GPG signing
-                      mvn clean deploy -DskipTests -Dgpg.passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")> -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
+                      mvn -q clean deploy -DskipTests -Dgpg.passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")> -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
 
                       echo "Successfully uploaded cloudsql-socket-factory-$newVer.jar to GAR"
                     outputVariables:
