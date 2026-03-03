@@ -23,6 +23,98 @@ pipeline:
               os: Linux
           execution:
             steps:
+              - parallel:
+                  - step:
+                      type: Run
+                      name: generate gpg private key
+                      identifier: generate_gpg_private_key
+                      spec:
+                        connectorRef: docker_registry
+                        image: vladgh/gpg:latest
+                        shell: Sh
+                        command: |-
+                          passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")>
+                          name=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_NAME")>
+                          email=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_EMAIL")>
+
+                          cat > gpg-key.conf <<EOF
+                          %no-protection
+                          Key-Type: RSA
+                          Key-Length: 4096
+                          Name-Real: $name
+                          Name-Email: $email
+                          Expire-Date: 0
+                          Passphrase: $passphrase
+                          EOF
+
+                          gpg --batch --gen-key gpg-key.conf
+
+                          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | awk '/sec/ {print $2}' | awk -F'/' '{print $2}')
+                          echo "Generated GPG Key ID: ${GPG_KEY_ID}"
+
+                          # Export the public key and encode in Base64
+                          PUBLIC_KEY=$(gpg --export --armor $GPG_KEY_ID | base64 -w 0)
+
+                          # Export the private key and encode in Base64
+                          PRIVATE_KEY=$(gpg --export-secret-keys --armor $GPG_KEY_ID | base64 -w 0)
+                        outputVariables:
+                          - name: GPG_KEY_ID
+                          - name: PRIVATE_KEY
+                          - name: PUBLIC_KEY
+                      when:
+                        stageStatus: Success
+                        condition: <+pipeline.variables.generate_gpg_keys>=="true"
+                    contextType: Pipeline
+                  - step:
+                      type: Run
+                      name: import gpg private key
+                      identifier: import_gpg_private_key
+                      spec:
+                        connectorRef: docker_registry
+                        image: vladgh/gpg:latest
+                        shell: Sh
+                        command: |-
+                          echo <+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PRIVATE_KEY")> | base64 -d | gpg --batch --import
+
+                          # Verify the key import
+                          gpg --list-secret-keys --keyid-format LONG
+                      when:
+                        stageStatus: Success
+                        condition: <+pipeline.variables.generate_gpg_keys>=="false"
+              - step:
+                  type: Run
+                  name: upload key to public server
+                  identifier: upload_key_to_public_server
+                  spec:
+                    connectorRef: docker_registry
+                    image: vladgh/gpg:latest
+                    shell: Sh
+                    command: |-
+                      #upload to public key to public key server
+                      gpg --keyserver <+repeat.item> --send-keys <+pipeline.stages.build_and_upload_to_gar.spec.execution.steps.generate_gpg_private_key.output.outputVariables.GPG_KEY_ID>
+                  timeout: 1m
+                  strategy:
+                    repeat:
+                      items:
+                        - hkp://keyserver.ubuntu.com:80
+                        - hkp://pgp.mit.edu:80
+                        - hkp://keys.openpgp.org:80
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: Retry
+                          spec:
+                            retryCount: 1
+                            retryIntervals:
+                              - 1s
+                            onRetryFailure:
+                              action:
+                                type: Ignore
+                  when:
+                    stageStatus: Success
+                    condition: <+pipeline.variables.generate_gpg_keys>=="true"
               - step:
                   type: Run
                   name: build_and_upload_cloudsql_jar
@@ -32,6 +124,8 @@ pipeline:
                     image: google/cloud-sdk:latest
                     shell: Sh
                     command: |-
+                      export GPG_TTY=$(tty)
+
                       # Install JDK 17 and Maven
                       apt -qq update
                       apt -qq install openjdk-17-jdk maven -y
@@ -44,13 +138,15 @@ pipeline:
 
                       export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/sa-token.json"
 
-                      # Authenticate with gcloud and test access
-                      gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-
                       PROJECT_ID="gar-prod-setup"
                       REPO="harness-maven-public"
                       GROUP_ID="io/harness"
                       ARTIFACT_ID="cloudsql-socket-factory"
+
+                      # Test GAR access
+                      echo "Testing GAR repository access..."
+                      gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
+                      gcloud artifacts repositories describe $REPO --location=us --project=$PROJECT_ID
 
                       # Get current version from GAR (if exists)
                       currentVersion=$(curl -s https://us-maven.pkg.dev/$PROJECT_ID/$REPO/$GROUP_ID/$ARTIFACT_ID/maven-metadata.xml | grep release | sed "s/.*<release>\([^<]*\)<\/release>.*/\1/" || echo "none")
@@ -81,8 +177,8 @@ pipeline:
                       # Update version in pom.xml
                       mvn -q versions:set -DnewVersion=$newVer -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
 
-                      # Build the shaded JAR and deploy to GAR (with verbose output for debugging)
-                      mvn clean deploy -DskipTests -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
+                      # Build the shaded JAR and deploy to GAR with GPG signing
+                      mvn clean deploy -DskipTests -Dgpg.passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")> -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
 
                       echo "Successfully uploaded cloudsql-socket-factory-$newVer.jar to GAR"
                     outputVariables:
@@ -90,6 +186,9 @@ pipeline:
                       - name: newVer
                   when:
                     stageStatus: Success
+                contextType: Pipeline
+          sharedPaths:
+            - /root/.gnupg
           caching:
             enabled: false
             paths: []
@@ -150,6 +249,11 @@ pipeline:
       description: "Version to publish (used if no git tag)"
       required: false
       value: <+input>
+    - name: generate_gpg_keys
+      type: String
+      description: "Generate new GPG keys or import existing"
+      required: false
+      value: <+input>.default(false).allowedValues(true,false)
   properties:
     ci:
       codebase:
