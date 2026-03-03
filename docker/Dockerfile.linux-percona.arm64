@@ -26,7 +26,9 @@ ENV MARIADB_TLS_DISABLE_PEER_VERIFICATION=1
 
 # Using v3.7.1 (stable) for MySQL 8.0.22+ compatibility
 ENV PERCONA_TOOLKIT_VERSION="3.7.1"
-RUN apk add --no-cache perl perl-dbi perl-dbd-mysql perl-time-hires && \
+# Upgrade libpng to fix CVE-2026-25646
+RUN apk upgrade --no-cache libpng && \
+    apk add --no-cache perl perl-dbi perl-dbd-mysql perl-time-hires && \
     apk add --no-cache --virtual .build-deps wget && \
     wget -O /tmp/percona-toolkit.tar.gz https://github.com/percona/percona-toolkit/archive/refs/tags/v${PERCONA_TOOLKIT_VERSION}.tar.gz && \
     tar -xzf /tmp/percona-toolkit.tar.gz -C /tmp && \
