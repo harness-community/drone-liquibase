@@ -1,0 +1,282 @@
+pipeline:
+  name: cloudsqlSocketFactoryRelease
+  identifier: cloudsqlSocketFactoryRelease
+  projectIdentifier: CD
+  orgIdentifier: default
+  tags:
+    DBOPS: ""
+  stages:
+    - stage:
+        name: build and upload to gar
+        identifier: build_and_upload_to_gar
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: cdcie
+              namespace: dbops
+              automountServiceAccountToken: true
+              nodeSelector:
+                purpose: DBOPSautomationExecution
+              os: Linux
+          execution:
+            steps:
+              - parallel:
+                  - step:
+                      type: Run
+                      name: generate gpg private key
+                      identifier: generate_gpg_private_key
+                      spec:
+                        connectorRef: docker_registry
+                        image: vladgh/gpg:latest
+                        shell: Sh
+                        command: |-
+                          passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")>
+                          name=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_NAME")>
+                          email=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_EMAIL")>
+
+                          cat > gpg-key.conf <<EOF
+                          %no-protection
+                          Key-Type: RSA
+                          Key-Length: 4096
+                          Name-Real: $name
+                          Name-Email: $email
+                          Expire-Date: 0
+                          Passphrase: $passphrase
+                          EOF
+
+                          gpg --batch --gen-key gpg-key.conf
+
+                          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | awk '/sec/ {print $2}' | awk -F'/' '{print $2}')
+                          echo "Generated GPG Key ID: ${GPG_KEY_ID}"
+
+                          # Export the public key and encode in Base64
+                          PUBLIC_KEY=$(gpg --export --armor $GPG_KEY_ID | base64 -w 0)
+
+                          # Export the private key and encode in Base64
+                          PRIVATE_KEY=$(gpg --export-secret-keys --armor $GPG_KEY_ID | base64 -w 0)
+                        outputVariables:
+                          - name: GPG_KEY_ID
+                          - name: PRIVATE_KEY
+                          - name: PUBLIC_KEY
+                      when:
+                        stageStatus: Success
+                        condition: <+pipeline.variables.generate_gpg_keys>=="true"
+                    contextType: Pipeline
+                  - step:
+                      type: Run
+                      name: import gpg private key
+                      identifier: import_gpg_private_key
+                      spec:
+                        connectorRef: docker_registry
+                        image: vladgh/gpg:latest
+                        shell: Sh
+                        command: |-
+                          echo <+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PRIVATE_KEY")> | base64 -d | gpg --batch --import
+
+                          # Verify the key import
+                          gpg --list-secret-keys --keyid-format LONG
+                      when:
+                        stageStatus: Success
+                        condition: <+pipeline.variables.generate_gpg_keys>=="false"
+              - step:
+                  type: Run
+                  name: upload key to public server
+                  identifier: upload_key_to_public_server
+                  spec:
+                    connectorRef: docker_registry
+                    image: vladgh/gpg:latest
+                    shell: Sh
+                    command: |-
+                      #upload to public key to public key server
+                      gpg --keyserver <+repeat.item> --send-keys <+pipeline.stages.build_and_upload_to_gar.spec.execution.steps.generate_gpg_private_key.output.outputVariables.GPG_KEY_ID>
+                  timeout: 1m
+                  strategy:
+                    repeat:
+                      items:
+                        - hkp://keyserver.ubuntu.com:80
+                        - hkp://pgp.mit.edu:80
+                        - hkp://keys.openpgp.org:80
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: Retry
+                          spec:
+                            retryCount: 1
+                            retryIntervals:
+                              - 1s
+                            onRetryFailure:
+                              action:
+                                type: Ignore
+                  when:
+                    stageStatus: Success
+                    condition: <+pipeline.variables.generate_gpg_keys>=="true"
+              - step:
+                  type: Run
+                  name: build_and_upload_cloudsql_jar
+                  identifier: build_and_upload_cloudsql_jar
+                  spec:
+                    connectorRef: docker_registry
+                    image: google/cloud-sdk:latest
+                    shell: Sh
+                    command: |-
+                      export GPG_TTY=$(tty)
+
+                      # Install JDK 21 (Temurin), Maven, and GPG
+                      apt -qq update
+                      apt -qq install wget apt-transport-https gnupg maven -y
+
+                      # Add Adoptium (Temurin) repository for JDK 21
+                      wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
+                      echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" > /etc/apt/sources.list.d/adoptium.list
+                      apt -qq update
+                      apt -qq install temurin-21-jdk -y
+
+                      export JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+                      export PATH=$JAVA_HOME/bin:$PATH
+                      export M2_HOME=/usr/share/maven
+                      export PATH=$M2_HOME/bin:$PATH
+
+                      # Import GPG private key for signing
+                      echo <+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PRIVATE_KEY")> | base64 -d | gpg --batch --import
+                      gpg --list-secret-keys --keyid-format LONG
+
+                      echo <+secrets.getValue("DBOPS_HARNESS_MAVEN_PUBLIC_REPO_KEY")> | base64 --decode > ./sa-token.json
+
+                      export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/sa-token.json"
+
+                      PROJECT_ID="gar-prod-setup"
+                      REPO="harness-maven-public"
+                      GROUP_ID="io/harness"
+                      ARTIFACT_ID="cloudsql-socket-factory"
+
+                      # Get current version from GAR (if exists)
+                      currentVersion=$(curl -s https://us-maven.pkg.dev/$PROJECT_ID/$REPO/$GROUP_ID/$ARTIFACT_ID/maven-metadata.xml | grep release | sed "s/.*<release>\([^<]*\)<\/release>.*/\1/" || echo "none")
+                      echo "Current version in GAR: $currentVersion"
+
+                      export currentVer=$currentVersion
+
+                      # Navigate to dependencies directory
+                      cd dependencies
+
+                      # Read cloudsql base version from pom.xml
+                      CLOUDSQL_BASE_VERSION=$(grep -oP '(?<=<cloud-sql-socket-factory.version>)[^<]+' pom.xml)
+                      echo "Cloud SQL Socket Factory base version: $CLOUDSQL_BASE_VERSION"
+
+                      # Get internal version from pipeline input or git tag
+                      INTERNAL_VERSION=<+pipeline.variables.internal_version>
+
+                      if [ -z "$INTERNAL_VERSION" ] || [ "$INTERNAL_VERSION" = "null" ]
+                      then
+                        # Try to extract from git tag (format: v1.0.0 or 1.0.0)
+                        TAG_VERSION=<+codebase.tag>
+                        if [ -n "$TAG_VERSION" ] && [ "$TAG_VERSION" != "null" ]
+                        then
+                          INTERNAL_VERSION=$(echo "$TAG_VERSION" | sed 's/^v//')
+                        fi
+                      fi
+
+                      if [ -z "$INTERNAL_VERSION" ] || [ "$INTERNAL_VERSION" = "null" ]
+                      then
+                        echo "ERROR: internal_version is required. Provide via pipeline variable or git tag."
+                        exit 1
+                      fi
+
+                      # Construct full version: <internal_version>-<cloudsql_base_version>
+                      # Example: 1.0.0-1.28.1
+                      export newVer="${INTERNAL_VERSION}-${CLOUDSQL_BASE_VERSION}"
+                      echo "New version: $newVer (internal: $INTERNAL_VERSION, cloudsql: $CLOUDSQL_BASE_VERSION)"
+
+                      # Build the shaded JAR and deploy to GAR with GPG signing
+                      # Pass versions as Maven properties
+                      mvn -q clean deploy -DskipTests \
+                        -Dinternal.version=$INTERNAL_VERSION \
+                        -Dcloud-sql-socket-factory.version=$CLOUDSQL_BASE_VERSION \
+                        -Dgpg.passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")> \
+                        -DPROJECT_ID=$PROJECT_ID \
+                        -DREPO=$REPO
+
+                      echo "Successfully uploaded cloudsql-socket-factory-$newVer.jar to GAR"
+                    outputVariables:
+                      - name: currentVer
+                      - name: newVer
+                  when:
+                    stageStatus: Success
+                contextType: Pipeline
+          sharedPaths:
+            - /root/.gnupg
+          caching:
+            enabled: false
+            paths: []
+          buildIntelligence:
+            enabled: false
+        description: Build and upload CloudSQL Socket Factory shaded JAR to GAR
+    - stage:
+        name: notify
+        identifier: notify
+        description: ""
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: ShellScript
+                  name: notify_status
+                  identifier: notify_status
+                  spec:
+                    shell: Bash
+                    source:
+                      type: Inline
+                      spec:
+                        script: |-
+                          status=<+pipeline.stages.build_and_upload_to_gar.status>
+                          executionLink=<+pipeline.executionUrl>
+                          curr_version=<+pipeline.stages.build_and_upload_to_gar.spec.execution.steps.build_and_upload_cloudsql_jar.output.outputVariables.currentVer>
+                          new_version=<+pipeline.stages.build_and_upload_to_gar.spec.execution.steps.build_and_upload_cloudsql_jar.output.outputVariables.newVer>
+
+                          echo "current_version: $curr_version"
+                          echo "new_version: $new_version"
+                          echo "execution_link: $executionLink"
+
+                          if [[ "$status" = "SUCCEEDED" || "$status" = "IgnoreFailed" ]]
+                          then
+                            echo "cloudsql-socket-factory GAR Publish Successful"
+                            curl -X POST --data-urlencode "payload={\"type\": \"mrkdwn\", \"text\":\"*cloudsql-socket-factory GAR Publish Successful* :white_check_mark: : <"$executionLink"|execution_link> \n *current_version*: "$curr_version" \n *new_version*: "$new_version" \n \", \"icon_emoji\": \":harnesshd:\"}" <+stage.variables.slack_webhook_url>
+                          else
+                            echo "cloudsql-socket-factory GAR Publish Failed"
+                            curl -X POST --data-urlencode "payload={\"type\": \"mrkdwn\", \"text\":\"*cloudsql-socket-factory GAR Publish Failed* :x: : <"$executionLink"|execution_link> \n *current_version*: "$curr_version" \n *new_version*: "$new_version" \n \", \"icon_emoji\": \":harnesshd:\"}" <+stage.variables.slack_webhook_url>
+                          fi
+                    environmentVariables: []
+                    outputVariables: []
+                    executionTarget: {}
+                  timeout: 10m
+        tags: {}
+        when:
+          pipelineStatus: All
+        variables:
+          - name: slack_webhook_url
+            type: Secret
+            description: ""
+            value: DBOPS_SLACK_WEBHOOK_URL
+  allowStageExecutions: true
+  variables:
+    - name: internal_version
+      type: String
+      description: Internal version (e.g., 1.0.0). Combined with cloudsql base version to create full version like 1.0.0-1.28.1
+      required: false
+      value: <+input>
+    - name: generate_gpg_keys
+      type: String
+      description: Generate new GPG keys or import existing
+      required: false
+      value: <+input>.default(false).allowedValues(true,false)
+  properties:
+    ci:
+      codebase:
+        repoName: liquibase-drone-plugin
+        build: <+input>
+        sparseCheckout: []
