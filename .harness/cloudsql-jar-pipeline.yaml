@@ -126,13 +126,17 @@ pipeline:
                     command: |-
                       export GPG_TTY=$(tty)
 
-                      # Install JDK 17 and Maven
+                      # Install JDK 17, Maven, and GPG
                       apt -qq update
-                      apt -qq install openjdk-17-jdk maven -y
+                      apt -qq install openjdk-17-jdk maven gnupg -y
                       export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
                       export PATH=$JAVA_HOME/bin:$PATH
                       export M2_HOME=/usr/share/maven
                       export PATH=$M2_HOME/bin:$PATH
+
+                      # Import GPG private key for signing
+                      echo <+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PRIVATE_KEY")> | base64 -d | gpg --batch --import
+                      gpg --list-secret-keys --keyid-format LONG
 
                       echo <+secrets.getValue("DBOPS_HARNESS_MAVEN_PUBLIC_REPO_KEY")> | base64 --decode > ./sa-token.json
 
