@@ -6,7 +6,9 @@
 
     <groupId>io.harness</groupId>
     <artifactId>cloudsql-socket-factory</artifactId>
-    <version>1.0.0</version>
+    <!-- Version format: <internal_version>-<cloudsql_base_version> -->
+    <!-- Example: 1.0.0-1.28.1 where 1.0.0 is internal, 1.28.1 is Cloud SQL Socket Factory version -->
+    <version>${internal.version}-${cloud-sql-socket-factory.version}</version>
     <packaging>jar</packaging>
 
     <name>Liquibase Cloud SQL Dependencies</name>
@@ -21,7 +23,10 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <!-- Cloud SQL Socket Factory -->
+        <!-- Internal version for this shaded JAR -->
+        <internal.version>1.0.0</internal.version>
+
+        <!-- Cloud SQL Socket Factory base version -->
         <cloud-sql-socket-factory.version>1.28.1</cloud-sql-socket-factory.version>
     </properties>
 

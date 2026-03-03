@@ -145,35 +145,49 @@ pipeline:
 
                       # Get current version from GAR (if exists)
                       currentVersion=$(curl -s https://us-maven.pkg.dev/$PROJECT_ID/$REPO/$GROUP_ID/$ARTIFACT_ID/maven-metadata.xml | grep release | sed "s/.*<release>\([^<]*\)<\/release>.*/\1/" || echo "none")
-                      echo "Current version: $currentVersion"
+                      echo "Current version in GAR: $currentVersion"
 
                       export currentVer=$currentVersion
 
-                      # Use tag as new version, or pipeline input
-                      export newVer=<+codebase.tag>
+                      # Navigate to dependencies directory
+                      cd dependencies
 
-                      if [ -z "$newVer" ] || [ "$newVer" = "null" ]
+                      # Read cloudsql base version from pom.xml
+                      CLOUDSQL_BASE_VERSION=$(grep -oP '(?<=<cloud-sql-socket-factory.version>)[^<]+' pom.xml)
+                      echo "Cloud SQL Socket Factory base version: $CLOUDSQL_BASE_VERSION"
+
+                      # Get internal version from pipeline input or git tag
+                      INTERNAL_VERSION=<+pipeline.variables.internal_version>
+
+                      if [ -z "$INTERNAL_VERSION" ] || [ "$INTERNAL_VERSION" = "null" ]
                       then
-                        echo "new version is empty or null, using pipeline variable"
-                        newVer=<+pipeline.variables.version>
+                        # Try to extract from git tag (format: v1.0.0 or 1.0.0)
+                        TAG_VERSION=<+codebase.tag>
+                        if [ -n "$TAG_VERSION" ] && [ "$TAG_VERSION" != "null" ]
+                        then
+                          INTERNAL_VERSION=$(echo "$TAG_VERSION" | sed 's/^v//')
+                        fi
                       fi
 
-                      if [ -z "$newVer" ] || [ "$newVer" = "null" ]
+                      if [ -z "$INTERNAL_VERSION" ] || [ "$INTERNAL_VERSION" = "null" ]
                       then
-                        echo "new version is still empty"
+                        echo "ERROR: internal_version is required. Provide via pipeline variable or git tag."
                         exit 1
                       fi
 
-                      echo "New version: $newVer"
-
-                      # Navigate to dependencies directory and build
-                      cd dependencies
-
-                      # Update version in pom.xml
-                      mvn -q versions:set -DnewVersion=$newVer -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
+                      # Construct full version: <internal_version>-<cloudsql_base_version>
+                      # Example: 1.0.0-1.28.1
+                      export newVer="${INTERNAL_VERSION}-${CLOUDSQL_BASE_VERSION}"
+                      echo "New version: $newVer (internal: $INTERNAL_VERSION, cloudsql: $CLOUDSQL_BASE_VERSION)"
 
                       # Build the shaded JAR and deploy to GAR with GPG signing
-                      mvn -q clean deploy -DskipTests -Dgpg.passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")> -DPROJECT_ID=$PROJECT_ID -DREPO=$REPO
+                      # Pass versions as Maven properties
+                      mvn -q clean deploy -DskipTests \
+                        -Dinternal.version=$INTERNAL_VERSION \
+                        -Dcloud-sql-socket-factory.version=$CLOUDSQL_BASE_VERSION \
+                        -Dgpg.passphrase=<+secrets.getValue("DBOPS_LIQUIBASE_EXT_GPG_PASSPHRASE")> \
+                        -DPROJECT_ID=$PROJECT_ID \
+                        -DREPO=$REPO
 
                       echo "Successfully uploaded cloudsql-socket-factory-$newVer.jar to GAR"
                     outputVariables:
@@ -239,9 +253,9 @@ pipeline:
             value: DBOPS_SLACK_WEBHOOK_URL
   allowStageExecutions: true
   variables:
-    - name: version
+    - name: internal_version
       type: String
-      description: "Version to publish (used if no git tag)"
+      description: "Internal version (e.g., 1.0.0). Combined with cloudsql base version to create full version like 1.0.0-1.28.1"
       required: false
       value: <+input>
     - name: generate_gpg_keys
