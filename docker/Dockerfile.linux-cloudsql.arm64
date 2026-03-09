@@ -19,7 +19,7 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
 # Fresh final image - removed jars never exist in these layers
 # Pinned to Alpine 3.23 for dependency stability
 FROM eclipse-temurin:21.0.10_7-jre-alpine-3.23
-RUN apk add --no-cache bash krb5
+RUN apk upgrade --no-cache gnutls libpng zlib && apk add --no-cache bash krb5
 
 ENV PATH="/liquibase:${PATH}"
 WORKDIR /liquibase
