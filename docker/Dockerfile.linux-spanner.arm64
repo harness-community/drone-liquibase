@@ -1,3 +1,13 @@
+# Build Go plugin binary - use BUILDPLATFORM to run Go natively, cross-compile to target
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS go-builder
+ARG TARGETOS=linux
+ARG TARGETARCH=arm64
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /plugin
+
 # Use Debian-based builder for downloading jars
 FROM debian:12.13-slim AS downloader
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -45,5 +55,8 @@ COPY entrypoint.sh /entrypoint.sh
 COPY --from=downloader /liquibase/lib /liquibase/lib
 
 COPY NOTICE /liquibase/NOTICE
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--help"]
+
+# Copy Go plugin binary
+COPY --from=go-builder /plugin /bin/plugin
+
+ENTRYPOINT ["/bin/plugin"]

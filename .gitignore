@@ -1,2 +1,22 @@
 .DS_Store
 .idea/
+
+# Go build artifacts
+release/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Log files
+harness-mcp.log

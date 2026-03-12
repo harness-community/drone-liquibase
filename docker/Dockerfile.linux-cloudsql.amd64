@@ -1,3 +1,13 @@
+# Build Go plugin binary - use BUILDPLATFORM to run Go natively, cross-compile to target
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS go-builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /plugin
+
 FROM alpine:3.17 AS alpine
 RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0 zstd=1.5.5-r0
 
@@ -45,5 +55,8 @@ COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
 COPY --from=alpine /liquibase/lib /liquibase/lib
 
 COPY NOTICE /liquibase/NOTICE
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--help"]
+
+# Copy Go plugin binary
+COPY --from=go-builder /plugin /bin/plugin
+
+ENTRYPOINT ["/bin/plugin"]

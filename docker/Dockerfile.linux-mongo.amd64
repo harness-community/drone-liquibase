@@ -1,3 +1,13 @@
+# Build Go plugin binary - use BUILDPLATFORM to run Go natively, cross-compile to target
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS go-builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /plugin
+
 FROM redhat/ubi9:9.4 AS ubi-stage
 
 # Dynamic architecture detection (like flyway)
@@ -60,5 +70,7 @@ COPY --from=ubi-stage /usr/lib64/libzstd.so.1 /usr/lib/libzstd.so.1
 COPY --from=ubi-stage /usr/lib64/libjq.so.1 /usr/lib/libjq.so.1
 COPY NOTICE /liquibase/NOTICE
 
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--help"]
+# Copy Go plugin binary
+COPY --from=go-builder /plugin /bin/plugin
+
+ENTRYPOINT ["/bin/plugin"]
