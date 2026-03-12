@@ -15,12 +15,9 @@
 package plugin
 
 import (
-	"bytes"
-	"compress/zlib"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -128,23 +125,8 @@ func (b *CommandBuilder) processSubstitutionProperties(encoded string) ([]string
 	return args, nil
 }
 
-// decompressZstd decompresses zstd-compressed data.
-// Note: This uses zlib as a fallback since Go's standard library doesn't include zstd.
-// The actual decompression is done by calling the zstd binary.
+// decompressZstd decompresses zstd-compressed data using the external zstd binary.
 func decompressZstd(data []byte) ([]byte, error) {
-	// Try zlib first (in case it's actually zlib compressed)
-	zlibReader, err := zlib.NewReader(bytes.NewReader(data))
-	if err == nil {
-		defer zlibReader.Close()
-		result, err := io.ReadAll(zlibReader)
-		if err == nil {
-			return result, nil
-		}
-	}
-
-	// For zstd, we need to use the external binary
-	// This is handled in the exec layer - return data as-is for now
-	// The actual implementation will use os/exec to call zstd
 	return decompressZstdExternal(data)
 }
 

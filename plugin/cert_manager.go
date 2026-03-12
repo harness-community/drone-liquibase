@@ -91,9 +91,13 @@ func detectJavaHome() string {
 func (m *CertManager) SetupCertificates(args CertArgs) (string, error) {
 	var javaOpts []string
 
-	// Ensure certs directory exists
+	// Ensure certs directory exists with correct permissions
 	if err := os.MkdirAll(m.certsDir, 0700); err != nil {
 		logrus.Warnf("Failed to create directory %s: %v", m.certsDir, err)
+	}
+	// Ensure permissions are set even if directory already exists
+	if err := os.Chmod(m.certsDir, 0700); err != nil {
+		logrus.Warnf("Failed to set permissions on %s: %v", m.certsDir, err)
 	}
 
 	// Setup TrustStore if root CA cert exists

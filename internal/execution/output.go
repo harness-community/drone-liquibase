@@ -41,6 +41,7 @@ const (
 // Output represents the plugin execution output.
 type Output struct {
 	properties      map[string]interface{}
+	propertyOrder   []string // Maintains insertion order
 	executionStatus ExecutionStatus
 	response        *Response
 }
@@ -60,6 +61,9 @@ func NewOutput() *Output {
 
 // AddProperty adds a property to the output.
 func (o *Output) AddProperty(name string, propType OutputPropertyType, value interface{}) {
+	if _, exists := o.properties[name]; !exists {
+		o.propertyOrder = append(o.propertyOrder, name)
+	}
 	o.properties[name] = value
 }
 
@@ -85,8 +89,9 @@ func (o *Output) SetExecutionFailureType(failureType string) {
 func (o *Output) CreateOutputFile(filePath string) (string, error) {
 	var lines []string
 
-	// Add all properties
-	for name, value := range o.properties {
+	// Add all properties in insertion order
+	for _, name := range o.propertyOrder {
+		value := o.properties[name]
 		switch v := value.(type) {
 		case string:
 			lines = append(lines, fmt.Sprintf("%s=%s", name, v))
