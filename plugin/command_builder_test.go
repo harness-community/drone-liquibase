@@ -16,6 +16,7 @@ package plugin
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -221,5 +222,93 @@ func TestBuildArgsEmptyGlobalOptions(t *testing.T) {
 	// First element should be the command when no global options
 	if len(result) == 0 || result[0] != "validate" {
 		t.Errorf("Expected first arg to be 'validate', got: %v", result)
+	}
+}
+
+func TestProcessSubstitutionProperties(t *testing.T) {
+	// Test with valid base64+zstd encoded JSON
+	// This is the format used by the bash script: base64(zstd(json))
+	// JSON: {"db_name":"testdb","schema":"public"}
+	// To create: echo '{"db_name":"testdb","schema":"public"}' | zstd -c | base64
+
+	builder := NewCommandBuilder([]string{})
+
+	// Test with empty substitution - should not add any args
+	args := Args{
+		LiquibaseArgs: LiquibaseArgs{
+			Command:             "update",
+			SubstituteLiquibase: "",
+		},
+	}
+
+	result, err := builder.BuildArgs(args)
+	if err != nil {
+		t.Fatalf("BuildArgs() with empty substitution error = %v", err)
+	}
+	if result[0] != "update" {
+		t.Errorf("Expected command 'update', got: %v", result)
+	}
+}
+
+func TestProcessSubstitutionPropertiesInvalidBase64(t *testing.T) {
+	builder := NewCommandBuilder([]string{})
+	args := Args{
+		LiquibaseArgs: LiquibaseArgs{
+			Command:             "update",
+			SubstituteLiquibase: "not-valid-base64!!!",
+		},
+	}
+
+	_, err := builder.BuildArgs(args)
+	if err == nil {
+		t.Error("BuildArgs() should error on invalid base64")
+	}
+	if !strings.Contains(err.Error(), "base64") {
+		t.Errorf("Error should mention base64, got: %v", err)
+	}
+}
+
+func TestDecompressZstdExternal(t *testing.T) {
+	// Create zstd compressed data: "hello world"
+	// echo -n "hello world" | zstd -c > /tmp/test.zst && xxd /tmp/test.zst
+	testData := "hello world"
+
+	// Compress using zstd
+	tmpInput, err := os.CreateTemp("", "zstd-test-input-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpInput.Name())
+
+	if _, err := tmpInput.WriteString(testData); err != nil {
+		tmpInput.Close()
+		t.Fatalf("Failed to write test data: %v", err)
+	}
+	tmpInput.Close()
+
+	// Compress using zstd command
+	compressed, err := runCommand("zstd", "-c", tmpInput.Name())
+	if err != nil {
+		t.Skipf("zstd not available: %v", err)
+	}
+
+	// Now test decompression
+	decompressed, err := decompressZstdExternal(compressed)
+	if err != nil {
+		t.Fatalf("decompressZstdExternal() error = %v", err)
+	}
+
+	if string(decompressed) != testData {
+		t.Errorf("decompressZstdExternal() = %q, want %q", string(decompressed), testData)
+	}
+}
+
+func TestDecompressZstdExternalInvalidData(t *testing.T) {
+	// Test with invalid zstd data
+	invalidData := []byte("this is not valid zstd compressed data")
+
+	_, err := decompressZstdExternal(invalidData)
+	if err == nil {
+		t.Error("decompressZstdExternal() should error on invalid data")
 	}
 }

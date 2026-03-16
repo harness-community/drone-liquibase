@@ -16,7 +16,6 @@ package plugin
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -146,19 +145,15 @@ func Exec(ctx context.Context, args Args) (mainErr error) {
 	// Set exit code output
 	pluginOutput.AddProperty(OutputExitCode, execution.OutputPropertyTypeSimple, fmt.Sprintf("%d", exitCode))
 
-	// Handle step outputs
+	// Handle step outputs (matching bash: step_output=$(cat "$STEP_OUTPUT_FILE"))
 	if args.GenerateStepOutputs == "true" {
 		if fileExists(StepOutputFile) {
 			stepOutput, err := os.ReadFile(StepOutputFile)
 			if err != nil {
 				logrus.Warnf("Failed to read step output file: %v", err)
 			} else {
-				var stepOutputJSON interface{}
-				if err := json.Unmarshal(stepOutput, &stepOutputJSON); err != nil {
-					logrus.Warnf("Failed to parse step output JSON: %v", err)
-				} else {
-					pluginOutput.AddProperty(OutputStepOutput, execution.OutputPropertyTypeComplex, stepOutputJSON)
-				}
+				// Bash $() strips trailing newlines, so we do the same
+				pluginOutput.AddProperty(OutputStepOutput, execution.OutputPropertyTypeSimple, strings.TrimRight(string(stepOutput), "\n"))
 			}
 			os.Remove(StepOutputFile)
 		}

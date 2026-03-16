@@ -51,10 +51,20 @@ func NewCertManager(args CertArgs) *CertManager {
 func detectJavaHome() string {
 	// Check if JAVA_HOME is already set in environment
 	if javaHome := os.Getenv("JAVA_HOME"); javaHome != "" {
+		logrus.Debugf("Using JAVA_HOME from environment: %s", javaHome)
+		setJavaHomeEnv(javaHome)
 		return javaHome
 	}
 
-	// Common Java installation paths to check
+	// Primary method: Use java -XshowSettings:properties (most reliable across JVM distributions)
+	// This matches bash: JAVA_HOME=$(java -XshowSettings:properties -version 2>&1 | grep 'java.home' | awk '{print $3}')
+	if javaHome := detectJavaHomeFromSettings(); javaHome != "" {
+		logrus.Debugf("Detected JAVA_HOME from java settings: %s", javaHome)
+		setJavaHomeEnv(javaHome)
+		return javaHome
+	}
+
+	// Fallback: Common Java installation paths
 	commonPaths := []string{
 		"/opt/java/openjdk",
 		"/usr/lib/jvm/default-jvm",
@@ -64,26 +74,55 @@ func detectJavaHome() string {
 
 	for _, path := range commonPaths {
 		if _, err := os.Stat(filepath.Join(path, "bin", "java")); err == nil {
-			logrus.Debugf("Found JAVA_HOME at %s", path)
+			logrus.Debugf("Found JAVA_HOME at common path: %s", path)
+			setJavaHomeEnv(path)
 			return path
 		}
 	}
 
-	// Fallback: find java binary and derive JAVA_HOME
+	// Last resort: find java binary and derive JAVA_HOME
+	// This matches bash fallback: JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
 	javaPath, err := runCommand("which", "java")
 	if err == nil {
-		// Resolve symlinks
 		resolved, err := filepath.EvalSymlinks(strings.TrimSpace(string(javaPath)))
 		if err == nil {
-			// java is typically in $JAVA_HOME/bin/java
 			javaHome := filepath.Dir(filepath.Dir(resolved))
 			logrus.Debugf("Derived JAVA_HOME from which: %s", javaHome)
+			setJavaHomeEnv(javaHome)
 			return javaHome
 		}
 	}
 
 	logrus.Warn("Could not detect JAVA_HOME, certificate import may fail")
 	return ""
+}
+
+// detectJavaHomeFromSettings uses java -XshowSettings:properties to find java.home
+func detectJavaHomeFromSettings() string {
+	output, err := runCommand("java", "-XshowSettings:properties", "-version")
+	if err != nil {
+		return ""
+	}
+
+	// Parse output for java.home property
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "java.home") {
+			// Format: "java.home = /path/to/java"
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return ""
+}
+
+// setJavaHomeEnv exports JAVA_HOME to environment for Liquibase internals
+func setJavaHomeEnv(javaHome string) {
+	if javaHome != "" {
+		os.Setenv("JAVA_HOME", javaHome)
+	}
 }
 
 // SetupCertificates configures the Java TrustStore and KeyStore.

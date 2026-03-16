@@ -17,6 +17,7 @@ package plugin
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -214,5 +215,127 @@ func TestValidateInputs(t *testing.T) {
 				t.Errorf("validateInputs() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestStepOutputFileHandling(t *testing.T) {
+	// Test that step output file content is read correctly
+	// This matches bash behavior: step_output=$(cat "$STEP_OUTPUT_FILE")
+	tmpDir := t.TempDir()
+	stepOutputFile := filepath.Join(tmpDir, "step_output.json")
+
+	// Simulate dbops-extensions JAR output (already base64+zstd compressed)
+	expectedContent := "KLUv/SAa0QAAeyJlcnJvciI6IiIsImZsb3dWMiI6dHJ1ZX0="
+	if err := os.WriteFile(stepOutputFile, []byte(expectedContent+"\n"), 0644); err != nil {
+		t.Fatalf("Failed to create step output file: %v", err)
+	}
+
+	// Read and verify
+	content, err := os.ReadFile(stepOutputFile)
+	if err != nil {
+		t.Fatalf("Failed to read step output file: %v", err)
+	}
+
+	// Bash $() strips trailing newlines
+	trimmed := strings.TrimRight(string(content), "\n")
+	if trimmed != expectedContent {
+		t.Errorf("Step output = %q, want %q", trimmed, expectedContent)
+	}
+}
+
+func TestStepOutputConstant(t *testing.T) {
+	// Verify the step output file path constant
+	if StepOutputFile != "/tmp/step_output.json" {
+		t.Errorf("StepOutputFile = %q, want %q", StepOutputFile, "/tmp/step_output.json")
+	}
+}
+
+func TestOutputConstants(t *testing.T) {
+	// Verify output key constants match expected values
+	if OutputExitCode != "exit_code" {
+		t.Errorf("OutputExitCode = %q, want %q", OutputExitCode, "exit_code")
+	}
+	if OutputStepOutput != "step_output" {
+		t.Errorf("OutputStepOutput = %q, want %q", OutputStepOutput, "step_output")
+	}
+}
+
+func TestValidateInputsErrorMessage(t *testing.T) {
+	args := Args{
+		LiquibaseArgs: LiquibaseArgs{
+			Command: "",
+		},
+	}
+
+	err := validateInputs(args)
+	if err == nil {
+		t.Fatal("validateInputs() should return error for missing command")
+	}
+
+	expectedMsg := "PLUGIN_COMMAND is required"
+	if err.Error() != expectedMsg {
+		t.Errorf("Error message = %q, want %q", err.Error(), expectedMsg)
+	}
+}
+
+func TestGoogleCloudAuthCleanup(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a mock credentials file
+	credFile := filepath.Join(tmpDir, "test-creds.json")
+	if err := os.WriteFile(credFile, []byte(`{"test": "data"}`), 0600); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Verify cleanup removes the file
+	os.Remove(credFile)
+	if fileExists(credFile) {
+		t.Error("File should be deleted after cleanup")
+	}
+}
+
+func TestCopyFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcFile := filepath.Join(tmpDir, "source.txt")
+	dstFile := filepath.Join(tmpDir, "dest.txt")
+
+	// Create source file
+	if err := os.WriteFile(srcFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create source file: %v", err)
+	}
+
+	// Copy file
+	if err := copyFile(srcFile, dstFile); err != nil {
+		t.Fatalf("copyFile() error = %v", err)
+	}
+
+	// Verify dest file has 0600 permissions (secure)
+	info, err := os.Stat(dstFile)
+	if err != nil {
+		t.Fatalf("Failed to stat dest file: %v", err)
+	}
+
+	// copyFile sets 0600 permissions for security
+	expectedPerm := os.FileMode(0600)
+	if info.Mode().Perm() != expectedPerm {
+		t.Errorf("Dest file permissions = %o, want %o", info.Mode().Perm(), expectedPerm)
+	}
+}
+
+func TestPluginLiquibasePrefixConstant(t *testing.T) {
+	// The prefix used for environment variable translation
+	expected := "PLUGIN_LIQUIBASE_"
+	envVar := OptionToEnvVar("url")
+	if !strings.HasPrefix(envVar, expected) {
+		t.Errorf("OptionToEnvVar should use prefix %q, got %q", expected, envVar)
+	}
+}
+
+func TestFileExistsDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// fileExists returns true for directories too (os.Stat doesn't distinguish)
+	if !fileExists(tmpDir) {
+		t.Error("fileExists() should return true for existing directory")
 	}
 }

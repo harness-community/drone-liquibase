@@ -16,6 +16,7 @@ package plugin
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +75,94 @@ func TestSetupCertificatesNoCerts(t *testing.T) {
 	// Should return empty JAVA_OPTS when no certs configured
 	if javaOpts != "" {
 		t.Errorf("SetupCertificates() javaOpts = %q, want empty", javaOpts)
+	}
+}
+
+func TestDetectJavaHomeFromSettings(t *testing.T) {
+	// Clear JAVA_HOME to test detection from java -XshowSettings:properties
+	originalJavaHome := os.Getenv("JAVA_HOME")
+	defer os.Setenv("JAVA_HOME", originalJavaHome)
+	os.Unsetenv("JAVA_HOME")
+
+	result := detectJavaHomeFromSettings()
+	// Result depends on whether Java is installed
+	// If Java is available, result should be non-empty
+	// This test validates the parsing logic works without panicking
+
+	// The function should return a valid path if Java is available
+	if result != "" {
+		// Basic sanity check - should not contain "java.home" literal
+		if strings.Contains(result, "java.home") {
+			t.Errorf("detectJavaHomeFromSettings() returned unparsed output: %q", result)
+		}
+	}
+}
+
+func TestSetJavaHomeEnv(t *testing.T) {
+	// Save original value
+	originalJavaHome := os.Getenv("JAVA_HOME")
+	defer os.Setenv("JAVA_HOME", originalJavaHome)
+
+	// Test setting JAVA_HOME
+	testPath := "/test/java/path"
+	setJavaHomeEnv(testPath)
+
+	if got := os.Getenv("JAVA_HOME"); got != testPath {
+		t.Errorf("setJavaHomeEnv() JAVA_HOME = %q, want %q", got, testPath)
+	}
+
+	// Test with empty path (should not change env)
+	os.Setenv("JAVA_HOME", "/existing/path")
+	setJavaHomeEnv("")
+	if got := os.Getenv("JAVA_HOME"); got != "/existing/path" {
+		t.Errorf("setJavaHomeEnv(\"\") should not change JAVA_HOME, got %q", got)
+	}
+}
+
+func TestDetectJavaHomeExportsToEnv(t *testing.T) {
+	// Test that detectJavaHome() exports JAVA_HOME to environment
+	originalJavaHome := os.Getenv("JAVA_HOME")
+	defer os.Setenv("JAVA_HOME", originalJavaHome)
+
+	// Clear JAVA_HOME and set to a test value
+	testPath := "/test/export/java"
+	os.Setenv("JAVA_HOME", testPath)
+
+	result := detectJavaHome()
+	if result != testPath {
+		t.Errorf("detectJavaHome() = %q, want %q", result, testPath)
+	}
+
+	// Verify JAVA_HOME is still set (exported)
+	if got := os.Getenv("JAVA_HOME"); got != testPath {
+		t.Errorf("JAVA_HOME should be exported, got %q", got)
+	}
+}
+
+func TestCertificateExistsNonexistentKeystore(t *testing.T) {
+	cm := &CertManager{
+		storePassword: "changeit",
+	}
+
+	// Should return false for nonexistent keystore
+	exists := cm.certificateExists("/nonexistent/keystore", "test-alias")
+	if exists {
+		t.Error("certificateExists() should return false for nonexistent keystore")
+	}
+}
+
+func TestCertManagerSetsCertsDir(t *testing.T) {
+	args := CertArgs{
+		CertsDir:      "/custom/certs/dir",
+		StorePassword: "custompass",
+	}
+
+	cm := NewCertManager(args)
+
+	if cm.certsDir != "/custom/certs/dir" {
+		t.Errorf("certsDir = %q, want %q", cm.certsDir, "/custom/certs/dir")
+	}
+	if cm.storePassword != "custompass" {
+		t.Errorf("storePassword = %q, want %q", cm.storePassword, "custompass")
 	}
 }
