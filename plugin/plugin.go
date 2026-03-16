@@ -15,7 +15,6 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -31,7 +30,7 @@ const (
 )
 
 // Exec executes the Liquibase plugin.
-func Exec(ctx context.Context, args Args) (mainErr error) {
+func Exec(args Args) (mainErr error) {
 	logrus.Info("Starting Liquibase Plugin")
 
 	pluginOutput := execution.NewOutput()

@@ -15,7 +15,6 @@
 package main
 
 import (
-	"context"
 	"os/exec"
 
 	"github.com/harness/liquibase-drone-plugin/internal/logger"
@@ -52,7 +51,7 @@ func main() {
 		logrus.SetLevel(level)
 	}
 
-	if err := plugin.Exec(context.Background(), args); err != nil {
+	if err := plugin.Exec(args); err != nil {
 		logrus.Fatalln(err)
 	}
 }
