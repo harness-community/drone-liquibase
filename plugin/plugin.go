@@ -137,14 +137,11 @@ func Exec(ctx context.Context, args Args) (mainErr error) {
 	// Remove step output file if it exists
 	os.Remove(StepOutputFile)
 
-	// Execute Liquibase
-	exitCode, output, err := runCommandWithOutput(args.LiquibaseBinary, commandArgs...)
+	// Execute Liquibase (output is streamed in real-time)
+	exitCode, _, err := runCommandWithOutput(args.LiquibaseBinary, commandArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to execute Liquibase: %w", err)
 	}
-
-	// Print output
-	fmt.Print(string(output))
 
 	// Set exit code output
 	pluginOutput.AddProperty(OutputExitCode, execution.OutputPropertyTypeSimple, fmt.Sprintf("%d", exitCode))

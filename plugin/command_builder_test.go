@@ -116,3 +116,110 @@ func TestProcessRemainingEnvVars(t *testing.T) {
 		t.Errorf("processRemainingEnvVars() did not include --changelog-file test.xml, got: %v", args)
 	}
 }
+
+func TestGlobalOptionsUnsetAfterProcessing(t *testing.T) {
+	// Set environment variable
+	os.Setenv("PLUGIN_LIQUIBASE_PASSWORD", "secret123")
+
+	builder := NewCommandBuilder([]string{"password"})
+	builder.processGlobalOptions()
+
+	// Verify the env var is unset (security feature matching bash behavior)
+	if val := os.Getenv("PLUGIN_LIQUIBASE_PASSWORD"); val != "" {
+		t.Errorf("PLUGIN_LIQUIBASE_PASSWORD should be unset after processing, got %q", val)
+	}
+}
+
+func TestCommandArgumentOrder(t *testing.T) {
+	// Setup: global option, command
+	os.Setenv("PLUGIN_LIQUIBASE_LOG_LEVEL", "info")
+	os.Setenv("PLUGIN_LIQUIBASE_URL", "jdbc:postgresql://localhost/db")
+	defer os.Unsetenv("PLUGIN_LIQUIBASE_LOG_LEVEL")
+	defer os.Unsetenv("PLUGIN_LIQUIBASE_URL")
+
+	builder := NewCommandBuilder([]string{"log-level"}) // Only log-level is global
+	args := Args{
+		LiquibaseArgs: LiquibaseArgs{
+			Command: "update",
+		},
+	}
+
+	result, err := builder.BuildArgs(args)
+	if err != nil {
+		t.Fatalf("BuildArgs() error = %v", err)
+	}
+
+	// Find positions
+	commandIdx := -1
+	logLevelIdx := -1
+	urlIdx := -1
+
+	for i, arg := range result {
+		switch arg {
+		case "update":
+			commandIdx = i
+		case "--log-level":
+			logLevelIdx = i
+		case "--url":
+			urlIdx = i
+		}
+	}
+
+	// Global options should come before command
+	if logLevelIdx > commandIdx {
+		t.Error("Global option --log-level should come before command")
+	}
+
+	// Remaining env vars should come after command
+	if urlIdx != -1 && urlIdx < commandIdx {
+		t.Error("Remaining env var --url should come after command")
+	}
+}
+
+func TestMultipleRemainingEnvVars(t *testing.T) {
+	os.Setenv("PLUGIN_LIQUIBASE_USERNAME", "admin")
+	os.Setenv("PLUGIN_LIQUIBASE_DEFAULT_SCHEMA_NAME", "public")
+	defer os.Unsetenv("PLUGIN_LIQUIBASE_USERNAME")
+	defer os.Unsetenv("PLUGIN_LIQUIBASE_DEFAULT_SCHEMA_NAME")
+
+	builder := NewCommandBuilder([]string{})
+	args := builder.processRemainingEnvVars()
+
+	// Should contain both vars
+	foundUsername := false
+	foundSchema := false
+	for i := 0; i < len(args)-1; i += 2 {
+		if args[i] == "--username" && args[i+1] == "admin" {
+			foundUsername = true
+		}
+		if args[i] == "--default-schema-name" && args[i+1] == "public" {
+			foundSchema = true
+		}
+	}
+
+	if !foundUsername {
+		t.Error("Missing --username in remaining env vars")
+	}
+	if !foundSchema {
+		t.Error("Missing --default-schema-name in remaining env vars")
+	}
+}
+
+func TestBuildArgsEmptyGlobalOptions(t *testing.T) {
+	builder := NewCommandBuilder([]string{})
+	args := Args{
+		LiquibaseArgs: LiquibaseArgs{
+			Command: "validate",
+		},
+	}
+
+	result, err := builder.BuildArgs(args)
+	if err != nil {
+		t.Fatalf("BuildArgs() error = %v", err)
+	}
+
+	// First element should be the command when no global options
+	if len(result) == 0 || result[0] != "validate" {
+		t.Errorf("Expected first arg to be 'validate', got: %v", result)
+	}
+}

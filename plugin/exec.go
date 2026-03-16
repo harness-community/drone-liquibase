@@ -17,6 +17,7 @@ package plugin
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -44,19 +45,17 @@ func runCommand(name string, args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// runCommandWithOutput executes a command and streams output to stdout/stderr.
-// Returns the exit code.
+// runCommandWithOutput executes a command and streams output to stdout/stderr in real-time.
+// Returns the exit code and captured output.
 func runCommandWithOutput(name string, args ...string) (int, []byte, error) {
 	cmd := exec.Command(name, args...)
 
-	// Create a buffer to capture output while also streaming
+	// Create a buffer to capture output while also streaming to stdout (like bash's tee)
 	var outputBuf bytes.Buffer
 
-	// Use MultiWriter to write to both buffer and stdout
-	cmd.Stdout = &outputBuf
-	cmd.Stderr = &outputBuf
-
-	logrus.Infof("Executing: %s %v", name, args)
+	// Use MultiWriter to write to both buffer and stdout for real-time streaming
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuf)
 
 	err := cmd.Run()
 
