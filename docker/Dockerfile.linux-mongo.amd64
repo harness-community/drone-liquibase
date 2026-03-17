@@ -56,7 +56,6 @@ COPY --from=liquibase-builder /liquibase /liquibase
 COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
 
 ADD resources /resources
-COPY entrypoint.sh /entrypoint.sh
 
 # Copy tools from UBI9 stage
 COPY --from=ubi-stage /usr/bin/jq /usr/bin/jq

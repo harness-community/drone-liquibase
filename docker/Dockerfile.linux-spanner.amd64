@@ -50,7 +50,6 @@ COPY --from=liquibase-builder /liquibase /liquibase
 COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
 
 ADD resources /resources
-COPY entrypoint.sh /entrypoint.sh
 
 # Copy Spanner jars from downloader
 COPY --from=downloader /liquibase/lib /liquibase/lib
