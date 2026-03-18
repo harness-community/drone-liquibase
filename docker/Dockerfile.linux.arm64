@@ -20,6 +20,7 @@ FROM liquibase/liquibase:4.33-alpine AS liquibase-builder
 USER 0
 RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
     && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar \
+    && rm -f /liquibase/internal/lib/liquibase-commercial.jar \
     && rm -f /liquibase/internal/lib/snowflake-jdbc.jar \
     && rm -f /liquibase/internal/lib/mssql-jdbc*.jar \
     && rm -f /liquibase/bin/lpm
