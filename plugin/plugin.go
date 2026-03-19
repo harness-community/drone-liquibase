@@ -135,32 +135,27 @@ func Exec(args Args) (mainErr error) {
 	// Remove step output file if it exists
 	os.Remove(StepOutputFile)
 
-	// Execute Liquibase (output is streamed in real-time)
-	exitCode, _, err := runCommandWithOutput(args.LiquibaseBinary, commandArgs...)
-	if err != nil {
-		return fmt.Errorf("failed to execute Liquibase: %w", err)
+	// Execute Liquibase
+	exitCode, _, execErr := runCommandWithOutput(args.LiquibaseBinary, commandArgs...)
+	if execErr != nil {
+		logrus.Errorf("Failed to execute Liquibase: %v", execErr)
+		exitCode = -1
 	}
 
-	// Set exit code output
+	// Write exit code to DRONE_OUTPUT
 	pluginOutput.AddProperty(OutputExitCode, execution.OutputPropertyTypeSimple, fmt.Sprintf("%d", exitCode))
 
-	// Handle step outputs (matching bash: step_output=$(cat "$STEP_OUTPUT_FILE"))
+	// Write step output if enabled
 	if args.GenerateStepOutputs == "true" {
 		if fileExists(StepOutputFile) {
 			stepOutput, err := os.ReadFile(StepOutputFile)
 			if err != nil {
 				logrus.Warnf("Failed to read step output file: %v", err)
 			} else {
-				// Bash $() strips trailing newlines, so we do the same
 				pluginOutput.AddProperty(OutputStepOutput, execution.OutputPropertyTypeSimple, strings.TrimRight(string(stepOutput), "\n"))
 			}
 			os.Remove(StepOutputFile)
 		}
-	}
-
-	// If exit code is non-zero, return an error
-	if exitCode != 0 {
-		return fmt.Errorf("Liquibase command failed with exit code %d", exitCode)
 	}
 
 	return nil

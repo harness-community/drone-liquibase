@@ -56,8 +56,7 @@ func detectJavaHome() string {
 		return javaHome
 	}
 
-	// Primary method: Use java -XshowSettings:properties (most reliable across JVM distributions)
-	// This matches bash: JAVA_HOME=$(java -XshowSettings:properties -version 2>&1 | grep 'java.home' | awk '{print $3}')
+	// Primary method: parse java.home from JVM settings
 	if javaHome := detectJavaHomeFromSettings(); javaHome != "" {
 		logrus.Debugf("Detected JAVA_HOME from java settings: %s", javaHome)
 		setJavaHomeEnv(javaHome)
@@ -80,8 +79,7 @@ func detectJavaHome() string {
 		}
 	}
 
-	// Last resort: find java binary and derive JAVA_HOME
-	// This matches bash fallback: JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
+	// Last resort: derive from java binary path
 	javaPath, err := runCommand("which", "java")
 	if err == nil {
 		resolved, err := filepath.EvalSymlinks(strings.TrimSpace(string(javaPath)))

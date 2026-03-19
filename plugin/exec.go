@@ -50,10 +50,8 @@ func runCommand(name string, args ...string) ([]byte, error) {
 func runCommandWithOutput(name string, args ...string) (int, []byte, error) {
 	cmd := exec.Command(name, args...)
 
-	// Create a buffer to capture output while also streaming to stdout (like bash's tee)
+	// Capture output while streaming to stdout/stderr
 	var outputBuf bytes.Buffer
-
-	// Use MultiWriter to write to both buffer and stdout for real-time streaming
 	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuf)
 

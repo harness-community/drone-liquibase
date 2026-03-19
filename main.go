@@ -23,17 +23,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// requiredCommands lists commands that must be available for the plugin to function.
-// These match the bash script's dependency check: jq, zstd, base64, plus keytool and openssl for certs.
 var requiredCommands = []string{"zstd", "keytool", "openssl"}
-
-// optionalCommands lists commands that are only needed for specific features.
-var optionalCommands = []string{"kinit"} // Only needed for Kerberos auth
+var optionalCommands = []string{"kinit"}
 
 func main() {
 	logrus.SetFormatter(logger.GetDefaultLoggerFormatterWithoutTimestamp())
 
-	// Validate required dependencies early (matching bash: for cmd in jq zstd base64; do ...)
 	if err := validateDependencies(); err != nil {
 		logrus.Fatalln(err)
 	}
