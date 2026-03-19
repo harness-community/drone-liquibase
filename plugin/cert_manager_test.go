@@ -26,7 +26,7 @@ func TestNewCertManager(t *testing.T) {
 		StorePassword: "testpass",
 	}
 
-	cm := NewCertManager(args)
+	cm := NewCertManager(args, "/test/java")
 
 	if cm.certsDir != "/test/certs" {
 		t.Errorf("certsDir = %q, want %q", cm.certsDir, "/test/certs")
@@ -64,7 +64,7 @@ func TestSetupCertificatesNoCerts(t *testing.T) {
 		ClientKeyPath:  "/nonexistent/client.key",
 	}
 
-	cm := NewCertManager(args)
+	cm := NewCertManager(args, "/test/java")
 	javaOpts, err := cm.SetupCertificates(args)
 
 	// Should not error, just skip cert setup when files don't exist
@@ -157,7 +157,7 @@ func TestCertManagerSetsCertsDir(t *testing.T) {
 		StorePassword: "custompass",
 	}
 
-	cm := NewCertManager(args)
+	cm := NewCertManager(args, "/test/java")
 
 	if cm.certsDir != "/custom/certs/dir" {
 		t.Errorf("certsDir = %q, want %q", cm.certsDir, "/custom/certs/dir")

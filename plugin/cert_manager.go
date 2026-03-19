@@ -39,11 +39,11 @@ type CertManager struct {
 }
 
 // NewCertManager creates a new CertManager.
-func NewCertManager(args CertArgs) *CertManager {
+func NewCertManager(args CertArgs, javaHome string) *CertManager {
 	return &CertManager{
 		certsDir:      args.CertsDir,
 		storePassword: args.StorePassword,
-		javaHome:      detectJavaHome(),
+		javaHome:      javaHome,
 	}
 }
 

@@ -73,8 +73,14 @@ func Exec(args Args) (mainErr error) {
 		return err
 	}
 
+	// Detect and export JAVA_HOME
+	javaHome := detectJavaHome()
+	if javaHome == "" {
+		logrus.Warn("JAVA_HOME not detected, some features may not work")
+	}
+
 	// Setup certificates
-	certManager := NewCertManager(args.CertArgs)
+	certManager := NewCertManager(args.CertArgs, javaHome)
 	javaOptsFromCerts, err := certManager.SetupCertificates(args.CertArgs)
 	if err != nil {
 		logrus.Warnf("Certificate setup warning: %v", err)
