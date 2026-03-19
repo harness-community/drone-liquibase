@@ -16,10 +16,13 @@ package plugin
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -70,6 +73,55 @@ func runCommandWithOutputImpl(name string, args ...string) (int, []byte, error) 
 	}
 
 	return exitCode, outputBuf.Bytes(), nil
+}
+
+// discoverAndInstallLicenseFiles globs for base64-encoded JAR files under
+// the given directory pattern, decodes each one, and writes the resulting
+// JAR to targetDir with the .b64 suffix stripped.
+//
+// Errors are logged but never abort execution (fail-graceful).
+func discoverAndInstallLicenseFiles(globPattern, targetDir string) {
+	matches, err := filepath.Glob(globPattern)
+	if err != nil {
+		logrus.Warnf("License auto-discovery: invalid glob pattern %q: %v", globPattern, err)
+		return
+	}
+
+	if len(matches) == 0 {
+		logrus.Debug("License auto-discovery: no license files found")
+		return
+	}
+
+	logrus.Infof("License auto-discovery: found %d file(s) matching %s", len(matches), globPattern)
+
+	for _, src := range matches {
+		jarName := strings.TrimSuffix(filepath.Base(src), ".b64")
+		dest := filepath.Join(targetDir, jarName)
+
+		if fileExists(dest) {
+			logrus.Infof("License auto-discovery: %s already exists, skipping", dest)
+			continue
+		}
+
+		encoded, err := os.ReadFile(src)
+		if err != nil {
+			logrus.Warnf("License auto-discovery: failed to read %s: %v", src, err)
+			continue
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+		if err != nil {
+			logrus.Warnf("License auto-discovery: failed to decode %s: %v", src, err)
+			continue
+		}
+
+		if err := os.WriteFile(dest, decoded, 0644); err != nil {
+			logrus.Warnf("License auto-discovery: failed to write %s: %v", dest, err)
+			continue
+		}
+
+		logrus.Infof("License auto-discovery: installed %s → %s", src, dest)
+	}
 }
 
 // setupGoogleCloudAuth creates the service account key file for Google Cloud authentication.

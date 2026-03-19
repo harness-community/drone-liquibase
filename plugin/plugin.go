@@ -28,6 +28,9 @@ const (
 	OutputExitCode   = "exit_code"
 	OutputStepOutput = "step_output"
 	StepOutputFile   = "/tmp/step_output.json"
+
+	LicenseGlobPattern = "/tmp/cert/*.jar.b64"
+	LicenseTargetDir   = "/liquibase/lib"
 )
 
 // Exec executes the Liquibase plugin.
@@ -123,6 +126,9 @@ func Exec(args Args) (mainErr error) {
 	if kerberosCleanup != nil {
 		cleanupFuncs = append(cleanupFuncs, kerberosCleanup)
 	}
+
+	// Auto-discover and install any base64-encoded license JARs
+	discoverAndInstallLicenseFiles(LicenseGlobPattern, LicenseTargetDir)
 
 	// Setup Google Cloud authentication
 	gcpCleanup, err := setupGoogleCloudAuth(args.JSONKey)

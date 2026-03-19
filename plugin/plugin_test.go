@@ -360,3 +360,78 @@ func TestFileExistsDirectory(t *testing.T) {
 	}
 }
 
+func TestDiscoverAndInstallLicenseFiles(t *testing.T) {
+	srcDir := filepath.Join(t.TempDir(), "cert")
+	destDir := filepath.Join(t.TempDir(), "lib")
+	os.MkdirAll(srcDir, 0755)
+	os.MkdirAll(destDir, 0755)
+
+	jarContent := []byte("PK\x03\x04fake-jar-bytes")
+	encoded := base64.StdEncoding.EncodeToString(jarContent)
+
+	os.WriteFile(filepath.Join(srcDir, "license_a.jar.b64"), []byte(encoded), 0644)
+	os.WriteFile(filepath.Join(srcDir, "license_b.jar.b64"), []byte(encoded+"\n"), 0644)
+
+	discoverAndInstallLicenseFiles(filepath.Join(srcDir, "*.jar.b64"), destDir)
+
+	for _, name := range []string{"license_a.jar", "license_b.jar"} {
+		dest := filepath.Join(destDir, name)
+		data, err := os.ReadFile(dest)
+		if err != nil {
+			t.Errorf("expected %s to exist: %v", name, err)
+			continue
+		}
+		if string(data) != string(jarContent) {
+			t.Errorf("%s content mismatch: got %d bytes, want %d", name, len(data), len(jarContent))
+		}
+	}
+}
+
+func TestDiscoverAndInstallLicenseFilesNoMatches(t *testing.T) {
+	destDir := t.TempDir()
+
+	// Should not panic or error on empty directory
+	discoverAndInstallLicenseFiles(filepath.Join(t.TempDir(), "*.jar.b64"), destDir)
+
+	entries, _ := os.ReadDir(destDir)
+	if len(entries) != 0 {
+		t.Errorf("expected no files in dest dir, got %d", len(entries))
+	}
+}
+
+func TestDiscoverAndInstallLicenseFilesSkipsExisting(t *testing.T) {
+	srcDir := filepath.Join(t.TempDir(), "cert")
+	destDir := filepath.Join(t.TempDir(), "lib")
+	os.MkdirAll(srcDir, 0755)
+	os.MkdirAll(destDir, 0755)
+
+	jarContent := []byte("new-content")
+	encoded := base64.StdEncoding.EncodeToString(jarContent)
+	os.WriteFile(filepath.Join(srcDir, "existing.jar.b64"), []byte(encoded), 0644)
+
+	existingContent := []byte("original-content")
+	os.WriteFile(filepath.Join(destDir, "existing.jar"), existingContent, 0644)
+
+	discoverAndInstallLicenseFiles(filepath.Join(srcDir, "*.jar.b64"), destDir)
+
+	data, _ := os.ReadFile(filepath.Join(destDir, "existing.jar"))
+	if string(data) != string(existingContent) {
+		t.Error("existing file should not be overwritten")
+	}
+}
+
+func TestDiscoverAndInstallLicenseFilesBadBase64(t *testing.T) {
+	srcDir := filepath.Join(t.TempDir(), "cert")
+	destDir := filepath.Join(t.TempDir(), "lib")
+	os.MkdirAll(srcDir, 0755)
+	os.MkdirAll(destDir, 0755)
+
+	os.WriteFile(filepath.Join(srcDir, "bad.jar.b64"), []byte("not-valid-base64!!!"), 0644)
+
+	// Should log a warning but not panic
+	discoverAndInstallLicenseFiles(filepath.Join(srcDir, "*.jar.b64"), destDir)
+
+	if fileExists(filepath.Join(destDir, "bad.jar")) {
+		t.Error("bad base64 should not produce an output file")
+	}
+}
