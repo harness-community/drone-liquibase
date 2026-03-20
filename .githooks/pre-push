@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# Pre-push hook to verify build and tests pass before pushing.
+# To enable: git config core.hooksPath .githooks
+#
+
+set -e
+
+echo "Running pre-push checks..."
+
+# Verify Go build
+echo "Checking build..."
+CGO_ENABLED=0 go build -o /dev/null .
+
+# Run tests
+echo "Running tests..."
+go test -v ./...
+
+echo "Pre-push checks passed!"

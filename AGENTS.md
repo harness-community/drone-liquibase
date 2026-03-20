@@ -18,7 +18,18 @@ The plugin acts as an **adapter layer** that:
 
 ```
 drone-liquibase/
-├── entrypoint.sh              # Main orchestration script (Docker entrypoint)
+├── main.go                    # Go entrypoint
+├── plugin/                    # Core plugin logic
+│   ├── plugin.go              # Main execution flow
+│   ├── args.go                # Configuration structs
+│   ├── command_builder.go     # Liquibase CLI argument construction
+│   ├── cert_manager.go        # SSL/TLS certificate handling
+│   ├── kerberos.go            # Kerberos authentication
+│   ├── global_options.go      # Global options file parsing
+│   └── exec.go                # Command execution utilities
+├── internal/
+│   ├── execution/             # Output handling for Drone
+│   └── logger/                # Logging configuration
 ├── resources/
 │   └── global_options.txt     # Whitelist of 144 Liquibase global options
 ├── docker/
@@ -46,28 +57,21 @@ drone-liquibase/
 
 ## Key Components
 
-### 1. entrypoint.sh (Lines 1-285)
+### 1. Go Plugin Binary (`/bin/plugin`)
 
-The main bash script that orchestrates the plugin execution. Understanding this file is essential.
+The plugin is implemented in Go and compiled to a static binary. Key packages:
 
-**Key Functions:**
-
-| Section | Lines | Purpose |
-|---------|-------|---------|
-| Dependency Check | 4-9 | Validates `jq`, `zstd`, `base64` are available |
-| `read_global_options()` | 12-52 | Reads options with retry mechanism |
-| Java Home Detection | 54-60 | Locates Java installation |
-| SSL/TLS TrustStore Setup | 80-112 | Imports root CA certificate |
-| SSL/TLS KeyStore Setup | 114-149 | Imports client certificate for mTLS |
-| Global Options Processing | 177-187 | Converts `PLUGIN_LIQUIBASE_*` to CLI args |
-| Substitution Properties | 192-227 | Decodes base64+zstd JSON to `-D` args |
-| Remaining Env Vars | 230-238 | Processes any leftover `PLUGIN_LIQUIBASE_*` vars |
-| Google Cloud Auth | 241-251 | Writes service account key file |
-| Command Execution | 268-271 | Runs Liquibase with constructed arguments |
-| Output Handling | 273-285 | Writes exit code and step outputs |
+| Package | Purpose |
+|---------|---------|
+| `main.go` | Entrypoint, dependency validation, config loading |
+| `plugin/plugin.go` | Main execution flow, output handling |
+| `plugin/command_builder.go` | Converts env vars to Liquibase CLI args |
+| `plugin/cert_manager.go` | SSL/TLS TrustStore/KeyStore setup |
+| `plugin/kerberos.go` | Kerberos authentication via kinit |
+| `plugin/global_options.go` | Parses global options whitelist |
 
 **Environment Variable Translation Pattern:**
-```bash
+```
 PLUGIN_LIQUIBASE_LOG_LEVEL=DEBUG  →  --log-level DEBUG
 PLUGIN_LIQUIBASE_SEARCH_PATH=/changelog  →  --search-path /changelog
 ```
@@ -149,20 +153,18 @@ docker run --rm \
 
 ## Code Style
 
-- **Shell Scripts**: Use `shellcheck` for linting
-- **Indentation**: 2 spaces for shell scripts
-- **Quoting**: Always quote variables to handle spaces
-- **Arrays**: Use bash arrays for command arguments to preserve spaces
-- **Error Handling**: Use `set -e` in download scripts; explicit error handling in entrypoint
+- **Go**: Standard `gofmt`, run `go test ./...` before committing
+- **Shell Scripts**: Use `shellcheck` for linting (scripts/ directory)
+- **Indentation**: Tabs for Go, 2 spaces for shell scripts
+- **Error Handling**: Return errors up the stack, log warnings for non-fatal issues
 
 ## DOs
 
-- Always test Docker builds before committing Dockerfile changes
-- Test all variants when modifying Dockerfiles (standard, mongo, spanner)
+- Run `go build && go test ./...` before committing
+- Test Docker builds before committing Dockerfile changes
+- Test all variants when modifying Dockerfiles (standard, mongo, spanner, snowflake, cloudsql, percona)
 - Follow existing code patterns in the codebase
 - Use descriptive commit messages with Jira ticket references
-- Quote all shell variables to handle spaces correctly
-- Use bash arrays for command arguments to preserve spaces
 
 ## DON'Ts
 
@@ -170,7 +172,6 @@ docker run --rm \
 - Never force push to main branch
 - Never commit secrets, credentials, or sensitive data
 - Never skip git hooks (no --no-verify)
-- Don't use string concatenation for command args (use arrays instead)
 - Don't change Liquibase base image versions without team discussion
 
 ## Commands to Never Run
@@ -287,31 +288,21 @@ The plugin auto-configures Java trust/key stores when certificates are mounted:
 
 ## Common Gotchas
 
-1. **Array vs String**: Use bash arrays for `command_args` to handle values with spaces correctly:
-   ```bash
-   command_args+=("--option" "$value")  # Correct
-   command_args="$command_args --option $value"  # Wrong - breaks on spaces
-   ```
+1. **Exit Code Handling**: The plugin writes `exit_code` to DRONE_OUTPUT but always exits 0 after Liquibase runs. Harness reads the exit code from DRONE_OUTPUT.
 
-2. **Exit Code Capture**: Use `PIPESTATUS[0]` to capture command exit code when piping to `tee`:
-   ```bash
-   "${command_args[@]}" 2>&1 | tee -a "$logfile"
-   exit_code=${PIPESTATUS[0]}
-   ```
+2. **Environment Variable Cleanup**: Sensitive variables (passwords) are unset after processing to prevent exposure.
 
-3. **Environment Variable Cleanup**: Sensitive variables are unset after use (line 185) to prevent exposure.
+3. **Non-Root Users**: The plugin supports non-root containers. Certificates are stored in `/harness/certs/` which is user-writable.
 
-4. **Non-Root Users**: The plugin supports non-root containers. Certificates are stored in `/harness/certs/` which is user-writable.
-
-5. **Base Image Differences**: MongoDB images use UBI9 (Red Hat) base while others use Alpine. Library paths differ:
+4. **Base Image Differences**: MongoDB images use UBI9 (Red Hat) base while others use Alpine. Library paths differ:
     - Alpine: `/usr/lib/libonig.so.5`
     - UBI9: `/usr/lib64/libonig.so.5`
 
 ## Debugging Tips
 
-1. **Check command output**: The constructed command is echoed before execution (line 255)
+1. **Check command output**: The constructed command is logged before execution
 
-2. **View logs**: Output is tee'd to a temp logfile (line 269)
+2. **Enable debug logging**: Set `PLUGIN_LOG_LEVEL=debug` for verbose output
 
 3. **Check step outputs**: Look at `$DRONE_OUTPUT` for exit code and `/tmp/step_output.json` for detailed output
 
