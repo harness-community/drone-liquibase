@@ -127,7 +127,16 @@ func Exec(args Args) (mainErr error) {
 	}
 	logrus.Debugf("Loaded %d global options", len(globalOptions))
 
-	// Build command arguments
+	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS
+	if args.Commands != "" {
+		commands, err := decodeCommands(args.Commands)
+		if err != nil {
+			return fmt.Errorf("failed to decode PLUGIN_COMMANDS: %w", err)
+		}
+		return executeConsolidated(args, globalOptions, commands, pluginOutput)
+	}
+
+	// Single command execution flow
 	builder := NewCommandBuilder(globalOptions)
 	commandArgs, err := builder.BuildArgs(args)
 	if err != nil {
@@ -169,8 +178,8 @@ func Exec(args Args) (mainErr error) {
 
 // validateInputs validates the required plugin inputs.
 func validateInputs(args Args) error {
-	if args.Command == "" {
-		return fmt.Errorf("PLUGIN_COMMAND is required")
+	if args.Command == "" && args.Commands == "" {
+		return fmt.Errorf("PLUGIN_COMMAND or PLUGIN_COMMANDS is required")
 	}
 	return nil
 }

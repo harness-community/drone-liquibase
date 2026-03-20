@@ -272,7 +272,7 @@ func TestValidateInputsErrorMessage(t *testing.T) {
 		t.Fatal("validateInputs() should return error for missing command")
 	}
 
-	expectedMsg := "PLUGIN_COMMAND is required"
+	expectedMsg := "PLUGIN_COMMAND or PLUGIN_COMMANDS is required"
 	if err.Error() != expectedMsg {
 		t.Errorf("Error message = %q, want %q", err.Error(), expectedMsg)
 	}
