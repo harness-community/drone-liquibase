@@ -16,6 +16,14 @@ package plugin
 
 import "time"
 
+const (
+	// GlobalOptionsFile is the path to the global options file.
+	GlobalOptionsFile = "/resources/global_options.txt"
+
+	// LiquibaseBinary is the path to the liquibase binary.
+	LiquibaseBinary = "/liquibase/liquibase"
+)
+
 // Args provides plugin execution arguments.
 type Args struct {
 	Pipeline
@@ -33,6 +41,9 @@ type LiquibaseArgs struct {
 	// Command is the Liquibase command to execute (e.g., update, rollback)
 	Command string `envconfig:"PLUGIN_COMMAND"`
 
+	// ConsolidatedCommand is a base64-encoded JSON array of commands for consolidated execution
+	ConsolidatedCommand string `envconfig:"PLUGIN_COMMANDS"`
+
 	// SubstituteLiquibase contains base64+zstd encoded JSON for changelog substitutions
 	SubstituteLiquibase string `envconfig:"PLUGIN_SUBSTITUTE_LIQUIBASE"`
 
@@ -41,12 +52,6 @@ type LiquibaseArgs struct {
 
 	// GenerateStepOutputs enables step output generation
 	GenerateStepOutputs string `envconfig:"GENERATE_STEP_OUTPUTS"`
-
-	// GlobalOptionsFile is the path to the global options file
-	GlobalOptionsFile string `envconfig:"PLUGIN_GLOBAL_OPTIONS_FILE" default:"/resources/global_options.txt"`
-
-	// LiquibaseBinary is the path to the liquibase binary
-	LiquibaseBinary string `envconfig:"PLUGIN_LIQUIBASE_BINARY" default:"/liquibase/liquibase"`
 }
 
 // CertArgs contains certificate-related configuration.
