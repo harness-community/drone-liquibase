@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eux
 
-LIQUIBASE_DBOPS_EXT_VERSION="1.17.1"
+LIQUIBASE_DBOPS_EXT_VERSION="1.19.0"
 LIQUIBASE_DBOPS_EXT_ZSTD_VERSION="1.5.5-5"
 OKIO_VERSION="3.2.0"
 OKHTTP_VERSION="4.11.0"
@@ -15,6 +15,8 @@ FAILSAFE_VERSION="2.4.4"
 GUAVA_VERSION="33.4.0-jre"
 MSSQL_JDBC_VERSION="12.10.2.jre11"
 MYSQL_CONNECTOR_VERSION="9.6.0"
+JACKSON_VERSION="2.18.6"
+COMMONS_CODEC_VERSION="1.21.0"
 
 
 mkdir -p /liquibase/lib
@@ -70,3 +72,19 @@ wget -O /liquibase/lib/mssql-jdbc-${MSSQL_JDBC_VERSION}.jar \
 # mysql-connector-j (replaces lpm add mysql)
 wget -O /liquibase/lib/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar \
   "https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/${MYSQL_CONNECTOR_VERSION}/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar"
+
+# jackson-databind
+wget -O /liquibase/lib/jackson-databind-${JACKSON_VERSION}.jar \
+  "https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-databind/${JACKSON_VERSION}/jackson-databind-${JACKSON_VERSION}.jar"
+
+# jackson-core
+wget -O /liquibase/lib/jackson-core-${JACKSON_VERSION}.jar \
+  "https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-core/${JACKSON_VERSION}/jackson-core-${JACKSON_VERSION}.jar"
+
+# jackson-annotations
+wget -O /liquibase/lib/jackson-annotations-${JACKSON_VERSION}.jar \
+  "https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-annotations/${JACKSON_VERSION}/jackson-annotations-${JACKSON_VERSION}.jar"
+
+# commons-codec
+wget -O /liquibase/lib/commons-codec-${COMMONS_CODEC_VERSION}.jar \
+  "https://repo1.maven.org/maven2/commons-codec/commons-codec/${COMMONS_CODEC_VERSION}/commons-codec-${COMMONS_CODEC_VERSION}.jar"
