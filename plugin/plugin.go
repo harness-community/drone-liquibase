@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/harness/liquibase-drone-plugin/internal/execution"
+	"github.com/kelseyhightower/envconfig"
 	"github.com/sirupsen/logrus"
 )
 
@@ -80,15 +81,16 @@ func Exec(args Args) (mainErr error) {
 	}
 
 	// Load global options
-	globalOptions, err := LoadGlobalOptions(args.GlobalOptionsFile)
+	globalOptions, err := LoadGlobalOptions(GlobalOptionsFile)
 	if err != nil {
 		return fmt.Errorf("failed to load global options: %w", err)
 	}
 	logrus.Debugf("Loaded %d global options", len(globalOptions))
 
-	// For consolidated flow, decode commands early and populate auth args
-	// from the first command so that cert, Kerberos, and GCP auth setup
-	// works correctly (these values only exist in the command args map).
+	// For consolidated flow, decode commands early and export auth args
+	// from the first command as env vars so that cert, Kerberos, and GCP
+	// auth setup works correctly. Re-process the struct to pick them up.
+
 	var commands []ConsolidatedCommand
 	if args.ConsolidatedCommand != "" {
 		commands, err = decodeCommands(args.ConsolidatedCommand)
@@ -96,7 +98,12 @@ func Exec(args Args) (mainErr error) {
 			return fmt.Errorf("failed to decode PLUGIN_COMMANDS: %w", err)
 		}
 		if len(commands) > 0 {
-			populateAuthArgs(&args, commands[0].Args)
+			for key, value := range commands[0].Args {
+				os.Setenv(key, value)
+			}
+			if err := envconfig.Process("", &args); err != nil {
+				return fmt.Errorf("failed to re-process args after exporting auth env vars: %w", err)
+			}
 		}
 	}
 
@@ -154,14 +161,14 @@ func Exec(args Args) (mainErr error) {
 	}
 
 	// Construct full command
-	fullArgs := append([]string{args.LiquibaseBinary}, commandArgs...)
+	fullArgs := append([]string{LiquibaseBinary}, commandArgs...)
 	logrus.Infof("Executing: %s", strings.Join(fullArgs, " "))
 
 	// Remove step output file if it exists
 	os.Remove(StepOutputFile)
 
 	// Execute Liquibase
-	exitCode, _, execErr := runCommandWithOutput(args.LiquibaseBinary, commandArgs...)
+	exitCode, _, execErr := runCommandWithOutput(LiquibaseBinary, commandArgs...)
 	if execErr != nil {
 		logrus.Errorf("Failed to execute Liquibase: %v", execErr)
 		exitCode = -1

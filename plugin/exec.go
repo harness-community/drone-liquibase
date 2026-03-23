@@ -47,7 +47,10 @@ func runCommand(name string, args ...string) ([]byte, error) {
 
 // runCommandWithOutput executes a command and streams output to stdout/stderr in real-time.
 // Returns the exit code and captured output.
-func runCommandWithOutput(name string, args ...string) (int, []byte, error) {
+// This is a variable so that tests can replace it with a mock.
+var runCommandWithOutput = runCommandWithOutputImpl
+
+func runCommandWithOutputImpl(name string, args ...string) (int, []byte, error) {
 	cmd := exec.Command(name, args...)
 
 	// Capture output while streaming to stdout/stderr

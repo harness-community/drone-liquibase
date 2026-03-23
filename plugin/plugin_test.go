@@ -15,6 +15,7 @@
 package plugin
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,6 +207,25 @@ func TestValidateInputs(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "consolidated commands set",
+			args: Args{
+				LiquibaseArgs: LiquibaseArgs{
+					ConsolidatedCommand: base64.StdEncoding.EncodeToString([]byte(`[{"command":"update","args":{}}]`)),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "both command and consolidated set",
+			args: Args{
+				LiquibaseArgs: LiquibaseArgs{
+					Command:             "update",
+					ConsolidatedCommand: base64.StdEncoding.EncodeToString([]byte(`[{"command":"tag","args":{}}]`)),
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -339,3 +359,4 @@ func TestFileExistsDirectory(t *testing.T) {
 		t.Error("fileExists() should return true for existing directory")
 	}
 }
+

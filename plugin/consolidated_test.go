@@ -17,12 +17,23 @@ package plugin
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/harness/liquibase-drone-plugin/internal/execution"
 )
+
+// mockRunCommandSuccess simulates a command that always succeeds.
+func mockRunCommandSuccess(name string, args ...string) (int, []byte, error) {
+	return 0, nil, nil
+}
+
+// mockRunCommandFailure simulates a command that always fails with exit code 1.
+func mockRunCommandFailure(name string, args ...string) (int, []byte, error) {
+	return 1, nil, fmt.Errorf("command failed")
+}
 
 func TestDecodeCommands(t *testing.T) {
 	commands := []ConsolidatedCommand{
@@ -96,59 +107,6 @@ func TestDecodeCommandsEmpty(t *testing.T) {
 	}
 }
 
-func TestValidateInputsConsolidated(t *testing.T) {
-	tests := []struct {
-		name    string
-		args    Args
-		wantErr bool
-	}{
-		{
-			name: "command set",
-			args: Args{
-				LiquibaseArgs: LiquibaseArgs{
-					Command: "update",
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "commands set",
-			args: Args{
-				LiquibaseArgs: LiquibaseArgs{
-					ConsolidatedCommand: base64.StdEncoding.EncodeToString([]byte(`[{"command":"update","args":{}}]`)),
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "both set",
-			args: Args{
-				LiquibaseArgs: LiquibaseArgs{
-					Command:  "update",
-					ConsolidatedCommand: base64.StdEncoding.EncodeToString([]byte(`[{"command":"tag","args":{}}]`)),
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "neither set",
-			args: Args{
-				LiquibaseArgs: LiquibaseArgs{},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateInputs(tt.args)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateInputs() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestConsolidatedCommandJSON(t *testing.T) {
 	cmd := ConsolidatedCommand{
 		Command: "update",
@@ -208,6 +166,10 @@ func TestDecodeCommandsWrongJSONStructure(t *testing.T) {
 }
 
 func TestExecuteConsolidatedEnvVarCleanup(t *testing.T) {
+	origRunCmd := runCommandWithOutput
+	runCommandWithOutput = mockRunCommandSuccess
+	defer func() { runCommandWithOutput = origRunCmd }()
+
 	// Verify that env vars set for one command are cleaned up after execution
 	commands := []ConsolidatedCommand{
 		{
@@ -217,11 +179,7 @@ func TestExecuteConsolidatedEnvVarCleanup(t *testing.T) {
 	}
 
 	pluginOutput := execution.NewOutput()
-	args := Args{
-		LiquibaseArgs: LiquibaseArgs{
-			LiquibaseBinary: "echo", // succeeds immediately
-		},
-	}
+	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err != nil {
@@ -237,16 +195,16 @@ func TestExecuteConsolidatedEnvVarCleanup(t *testing.T) {
 }
 
 func TestExecuteConsolidatedSuccess(t *testing.T) {
+	origRunCmd := runCommandWithOutput
+	runCommandWithOutput = mockRunCommandSuccess
+	defer func() { runCommandWithOutput = origRunCmd }()
+
 	commands := []ConsolidatedCommand{
-		{Command: "echo", Args: map[string]string{}},
+		{Command: "update", Args: map[string]string{}},
 	}
 
 	pluginOutput := execution.NewOutput()
-	args := Args{
-		LiquibaseArgs: LiquibaseArgs{
-			LiquibaseBinary: "echo",
-		},
-	}
+	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err != nil {
@@ -255,16 +213,16 @@ func TestExecuteConsolidatedSuccess(t *testing.T) {
 }
 
 func TestExecuteConsolidatedFailure(t *testing.T) {
+	origRunCmd := runCommandWithOutput
+	runCommandWithOutput = mockRunCommandFailure
+	defer func() { runCommandWithOutput = origRunCmd }()
+
 	commands := []ConsolidatedCommand{
-		{Command: "nonexistent-subcommand", Args: map[string]string{}},
+		{Command: "update", Args: map[string]string{}},
 	}
 
 	pluginOutput := execution.NewOutput()
-	args := Args{
-		LiquibaseArgs: LiquibaseArgs{
-			LiquibaseBinary: "false", // exits with code 1
-		},
-	}
+	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err == nil {
@@ -273,6 +231,10 @@ func TestExecuteConsolidatedFailure(t *testing.T) {
 }
 
 func TestExecuteConsolidatedStructFieldSync(t *testing.T) {
+	origRunCmd := runCommandWithOutput
+	runCommandWithOutput = mockRunCommandSuccess
+	defer func() { runCommandWithOutput = origRunCmd }()
+
 	// Verify that PLUGIN_SUBSTITUTE_LIQUIBASE and GENERATE_STEP_OUTPUTS
 	// from cmd.Args are synced to the struct fields used by BuildArgs
 	commands := []ConsolidatedCommand{
@@ -286,11 +248,7 @@ func TestExecuteConsolidatedStructFieldSync(t *testing.T) {
 	}
 
 	pluginOutput := execution.NewOutput()
-	args := Args{
-		LiquibaseArgs: LiquibaseArgs{
-			LiquibaseBinary: "echo",
-		},
-	}
+	args := Args{}
 
 	// SubstituteLiquibase will cause BuildArgs to fail (invalid base64+zstd),
 	// but that confirms the value was synced to the struct field
@@ -304,35 +262,57 @@ func TestExecuteConsolidatedStructFieldSync(t *testing.T) {
 }
 
 func TestExecuteConsolidatedMultiCommandFailsOnSecond(t *testing.T) {
-	// First command succeeds, second fails — verify early termination
+	callCount := 0
+	origRunCmd := runCommandWithOutput
+	// First command succeeds, second command fails
+	runCommandWithOutput = func(name string, args ...string) (int, []byte, error) {
+		callCount++
+		if callCount == 1 {
+			return 0, nil, nil
+		}
+		return 1, nil, fmt.Errorf("command failed")
+	}
+	defer func() { runCommandWithOutput = origRunCmd }()
+
 	commands := []ConsolidatedCommand{
 		{Command: "first", Args: map[string]string{}},
 		{Command: "second", Args: map[string]string{}},
 	}
 
 	pluginOutput := execution.NewOutput()
-	// Use "sh" with -c to make first succeed and second fail
-	// But simpler: we can't easily make only the 2nd fail with echo/false.
-	// Instead, use a binary that always fails — both would fail,
-	// but error message should reference command 1 (first to fail).
-	args := Args{
-		LiquibaseArgs: LiquibaseArgs{
-			LiquibaseBinary: "false",
-		},
-	}
+	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err == nil {
 		t.Fatal("executeConsolidated() should error on command failure")
 	}
-	// Should fail on command 1 and not reach command 2
-	if !strings.Contains(err.Error(), "command 1") {
-		t.Errorf("error should reference command 1, got: %v", err)
+	// Should fail on command 2
+	if !strings.Contains(err.Error(), "command 2") {
+		t.Errorf("error should reference command 2, got: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 command executions, got %d", callCount)
 	}
 }
 
 func TestExecuteConsolidatedEnvVarIsolationBetweenCommands(t *testing.T) {
-	// Verify env vars from command 1 don't leak into command 2
+	origRunCmd := runCommandWithOutput
+	// Track env vars at the time each command executes
+	var cmd1URL, cmd1Username, cmd2URL, cmd2Username string
+	callCount := 0
+	runCommandWithOutput = func(name string, args ...string) (int, []byte, error) {
+		callCount++
+		if callCount == 1 {
+			cmd1URL = os.Getenv("PLUGIN_LIQUIBASE_URL")
+			cmd1Username = os.Getenv("PLUGIN_LIQUIBASE_USERNAME")
+		} else {
+			cmd2URL = os.Getenv("PLUGIN_LIQUIBASE_URL")
+			cmd2Username = os.Getenv("PLUGIN_LIQUIBASE_USERNAME")
+		}
+		return 0, nil, nil
+	}
+	defer func() { runCommandWithOutput = origRunCmd }()
+
 	commands := []ConsolidatedCommand{
 		{
 			Command: "first",
@@ -345,15 +325,27 @@ func TestExecuteConsolidatedEnvVarIsolationBetweenCommands(t *testing.T) {
 	}
 
 	pluginOutput := execution.NewOutput()
-	args := Args{
-		LiquibaseArgs: LiquibaseArgs{
-			LiquibaseBinary: "echo",
-		},
-	}
+	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err != nil {
 		t.Fatalf("executeConsolidated() error = %v", err)
+	}
+
+	// Command 1 should see its own URL but not command 2's username
+	if cmd1URL != "jdbc:first://db" {
+		t.Errorf("command 1: PLUGIN_LIQUIBASE_URL = %q, want %q", cmd1URL, "jdbc:first://db")
+	}
+	if cmd1Username != "" {
+		t.Errorf("command 1: PLUGIN_LIQUIBASE_USERNAME should be empty, got %q", cmd1Username)
+	}
+
+	// Command 2 should see its own username but NOT command 1's URL (cleaned up)
+	if cmd2URL != "" {
+		t.Errorf("command 2: PLUGIN_LIQUIBASE_URL should be empty (cleaned up from cmd 1), got %q", cmd2URL)
+	}
+	if cmd2Username != "user2" {
+		t.Errorf("command 2: PLUGIN_LIQUIBASE_USERNAME = %q, want %q", cmd2Username, "user2")
 	}
 
 	// After execution, all env vars from both commands should be cleaned up
@@ -362,138 +354,6 @@ func TestExecuteConsolidatedEnvVarIsolationBetweenCommands(t *testing.T) {
 	}
 	if val := os.Getenv("PLUGIN_LIQUIBASE_USERNAME"); val != "" {
 		t.Errorf("PLUGIN_LIQUIBASE_USERNAME should be unset, got %q", val)
-	}
-}
-
-func TestPopulateAuthArgsKerberos(t *testing.T) {
-	args := Args{}
-	cmdArgs := map[string]string{
-		"PLUGIN_KERBEROS_USER_PRINCIPAL":   "user@REALM",
-		"PLUGIN_KERBEROS_PASSWORD":         "secret",
-		"PLUGIN_KERBEROS_KEYTAB_FILE_PATH": "/path/to/keytab",
-	}
-
-	populateAuthArgs(&args, cmdArgs)
-
-	if args.KerberosArgs.UserPrincipal != "user@REALM" {
-		t.Errorf("UserPrincipal = %q, want %q", args.KerberosArgs.UserPrincipal, "user@REALM")
-	}
-	if args.KerberosArgs.Password != "secret" {
-		t.Errorf("Password = %q, want %q", args.KerberosArgs.Password, "secret")
-	}
-	if args.KerberosArgs.KeytabFilePath != "/path/to/keytab" {
-		t.Errorf("KeytabFilePath = %q, want %q", args.KerberosArgs.KeytabFilePath, "/path/to/keytab")
-	}
-}
-
-func TestPopulateAuthArgsGCP(t *testing.T) {
-	args := Args{}
-	cmdArgs := map[string]string{
-		"PLUGIN_JSON_KEY": `{"type":"service_account"}`,
-	}
-
-	populateAuthArgs(&args, cmdArgs)
-
-	if args.LiquibaseArgs.JSONKey != `{"type":"service_account"}` {
-		t.Errorf("JSONKey = %q, want %q", args.LiquibaseArgs.JSONKey, `{"type":"service_account"}`)
-	}
-}
-
-func TestPopulateAuthArgsCerts(t *testing.T) {
-	args := Args{
-		CertArgs: CertArgs{
-			CertsDir:      "/default/certs",
-			SSLCACertPath: "/default/ca.crt",
-			ClientCertPath: "/default/client.crt",
-			ClientKeyPath:  "/default/client.key",
-			StorePassword:  "changeit",
-		},
-	}
-	cmdArgs := map[string]string{
-		"PLUGIN_CERTS_DIR":        "/custom/certs",
-		"PLUGIN_SSL_CA_CERT_PATH": "/custom/ca.crt",
-		"PLUGIN_STORE_PASSWORD":   "custompass",
-	}
-
-	populateAuthArgs(&args, cmdArgs)
-
-	if args.CertArgs.CertsDir != "/custom/certs" {
-		t.Errorf("CertsDir = %q, want %q", args.CertArgs.CertsDir, "/custom/certs")
-	}
-	if args.CertArgs.SSLCACertPath != "/custom/ca.crt" {
-		t.Errorf("SSLCACertPath = %q, want %q", args.CertArgs.SSLCACertPath, "/custom/ca.crt")
-	}
-	if args.CertArgs.StorePassword != "custompass" {
-		t.Errorf("StorePassword = %q, want %q", args.CertArgs.StorePassword, "custompass")
-	}
-	// Defaults preserved when not in cmdArgs
-	if args.CertArgs.ClientCertPath != "/default/client.crt" {
-		t.Errorf("ClientCertPath = %q, want %q (default preserved)", args.CertArgs.ClientCertPath, "/default/client.crt")
-	}
-	if args.CertArgs.ClientKeyPath != "/default/client.key" {
-		t.Errorf("ClientKeyPath = %q, want %q (default preserved)", args.CertArgs.ClientKeyPath, "/default/client.key")
-	}
-}
-
-func TestPopulateAuthArgsEmptyMap(t *testing.T) {
-	args := Args{
-		CertArgs: CertArgs{
-			CertsDir:      "/default/certs",
-			StorePassword: "changeit",
-		},
-	}
-	cmdArgs := map[string]string{}
-
-	populateAuthArgs(&args, cmdArgs)
-
-	// All defaults should be preserved
-	if args.CertArgs.CertsDir != "/default/certs" {
-		t.Errorf("CertsDir = %q, want %q", args.CertArgs.CertsDir, "/default/certs")
-	}
-	if args.CertArgs.StorePassword != "changeit" {
-		t.Errorf("StorePassword = %q, want %q", args.CertArgs.StorePassword, "changeit")
-	}
-	if args.KerberosArgs.UserPrincipal != "" {
-		t.Errorf("UserPrincipal = %q, want empty", args.KerberosArgs.UserPrincipal)
-	}
-	if args.LiquibaseArgs.JSONKey != "" {
-		t.Errorf("JSONKey = %q, want empty", args.LiquibaseArgs.JSONKey)
-	}
-}
-
-func TestPopulateAuthArgsAllFields(t *testing.T) {
-	args := Args{}
-	cmdArgs := map[string]string{
-		"PLUGIN_KERBEROS_USER_PRINCIPAL":   "user@REALM",
-		"PLUGIN_KERBEROS_PASSWORD":         "secret",
-		"PLUGIN_KERBEROS_KEYTAB_FILE_PATH": "/keytab",
-		"PLUGIN_JSON_KEY":                  `{"key":"val"}`,
-		"PLUGIN_CERTS_DIR":                 "/certs",
-		"PLUGIN_SSL_CA_CERT_PATH":          "/ca.crt",
-		"PLUGIN_CLIENT_CERT_PATH":          "/client.crt",
-		"PLUGIN_CLIENT_KEY_PATH":           "/client.key",
-		"PLUGIN_STORE_PASSWORD":            "pass",
-	}
-
-	populateAuthArgs(&args, cmdArgs)
-
-	if args.KerberosArgs.UserPrincipal != "user@REALM" {
-		t.Errorf("UserPrincipal = %q, want %q", args.KerberosArgs.UserPrincipal, "user@REALM")
-	}
-	if args.LiquibaseArgs.JSONKey != `{"key":"val"}` {
-		t.Errorf("JSONKey = %q, want %q", args.LiquibaseArgs.JSONKey, `{"key":"val"}`)
-	}
-	if args.CertArgs.CertsDir != "/certs" {
-		t.Errorf("CertsDir = %q, want %q", args.CertArgs.CertsDir, "/certs")
-	}
-	if args.CertArgs.ClientCertPath != "/client.crt" {
-		t.Errorf("ClientCertPath = %q, want %q", args.CertArgs.ClientCertPath, "/client.crt")
-	}
-	if args.CertArgs.ClientKeyPath != "/client.key" {
-		t.Errorf("ClientKeyPath = %q, want %q", args.CertArgs.ClientKeyPath, "/client.key")
-	}
-	if args.CertArgs.StorePassword != "pass" {
-		t.Errorf("StorePassword = %q, want %q", args.CertArgs.StorePassword, "pass")
 	}
 }
 
