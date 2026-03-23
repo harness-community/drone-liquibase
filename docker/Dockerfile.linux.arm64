@@ -27,9 +27,15 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
 # Fresh final image - removed jars never exist in these layers
 # Pinned to Alpine 3.23 for dependency stability
 FROM eclipse-temurin:21.0.10_7-jre-alpine-3.23
-# Upgrade libpng to fix CVE-2026-25646
-RUN apk upgrade --no-cache libpng && \
-    apk add --no-cache bash krb5
+ARG GNUTLS_VERSION="3.8.12-r0"
+ARG ZLIB_VERSION="1.3.2-r0"
+# Pin CVE-fixed gnutls/zlib revisions and upgrade libpng
+RUN apk add --no-cache --upgrade \
+    "gnutls=${GNUTLS_VERSION}" \
+    "zlib=${ZLIB_VERSION}" \
+    libpng \
+    bash \
+    krb5
 
 ENV PATH="/liquibase:${PATH}"
 WORKDIR /liquibase
