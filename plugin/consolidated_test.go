@@ -115,7 +115,7 @@ func TestValidateInputsConsolidated(t *testing.T) {
 			name: "commands set",
 			args: Args{
 				LiquibaseArgs: LiquibaseArgs{
-					Commands: base64.StdEncoding.EncodeToString([]byte(`[{"command":"update","args":{}}]`)),
+					ConsolidatedCommand: base64.StdEncoding.EncodeToString([]byte(`[{"command":"update","args":{}}]`)),
 				},
 			},
 			wantErr: false,
@@ -125,7 +125,7 @@ func TestValidateInputsConsolidated(t *testing.T) {
 			args: Args{
 				LiquibaseArgs: LiquibaseArgs{
 					Command:  "update",
-					Commands: base64.StdEncoding.EncodeToString([]byte(`[{"command":"tag","args":{}}]`)),
+					ConsolidatedCommand: base64.StdEncoding.EncodeToString([]byte(`[{"command":"tag","args":{}}]`)),
 				},
 			},
 			wantErr: false,
@@ -362,6 +362,138 @@ func TestExecuteConsolidatedEnvVarIsolationBetweenCommands(t *testing.T) {
 	}
 	if val := os.Getenv("PLUGIN_LIQUIBASE_USERNAME"); val != "" {
 		t.Errorf("PLUGIN_LIQUIBASE_USERNAME should be unset, got %q", val)
+	}
+}
+
+func TestPopulateAuthArgsKerberos(t *testing.T) {
+	args := Args{}
+	cmdArgs := map[string]string{
+		"PLUGIN_KERBEROS_USER_PRINCIPAL":   "user@REALM",
+		"PLUGIN_KERBEROS_PASSWORD":         "secret",
+		"PLUGIN_KERBEROS_KEYTAB_FILE_PATH": "/path/to/keytab",
+	}
+
+	populateAuthArgs(&args, cmdArgs)
+
+	if args.KerberosArgs.UserPrincipal != "user@REALM" {
+		t.Errorf("UserPrincipal = %q, want %q", args.KerberosArgs.UserPrincipal, "user@REALM")
+	}
+	if args.KerberosArgs.Password != "secret" {
+		t.Errorf("Password = %q, want %q", args.KerberosArgs.Password, "secret")
+	}
+	if args.KerberosArgs.KeytabFilePath != "/path/to/keytab" {
+		t.Errorf("KeytabFilePath = %q, want %q", args.KerberosArgs.KeytabFilePath, "/path/to/keytab")
+	}
+}
+
+func TestPopulateAuthArgsGCP(t *testing.T) {
+	args := Args{}
+	cmdArgs := map[string]string{
+		"PLUGIN_JSON_KEY": `{"type":"service_account"}`,
+	}
+
+	populateAuthArgs(&args, cmdArgs)
+
+	if args.LiquibaseArgs.JSONKey != `{"type":"service_account"}` {
+		t.Errorf("JSONKey = %q, want %q", args.LiquibaseArgs.JSONKey, `{"type":"service_account"}`)
+	}
+}
+
+func TestPopulateAuthArgsCerts(t *testing.T) {
+	args := Args{
+		CertArgs: CertArgs{
+			CertsDir:      "/default/certs",
+			SSLCACertPath: "/default/ca.crt",
+			ClientCertPath: "/default/client.crt",
+			ClientKeyPath:  "/default/client.key",
+			StorePassword:  "changeit",
+		},
+	}
+	cmdArgs := map[string]string{
+		"PLUGIN_CERTS_DIR":        "/custom/certs",
+		"PLUGIN_SSL_CA_CERT_PATH": "/custom/ca.crt",
+		"PLUGIN_STORE_PASSWORD":   "custompass",
+	}
+
+	populateAuthArgs(&args, cmdArgs)
+
+	if args.CertArgs.CertsDir != "/custom/certs" {
+		t.Errorf("CertsDir = %q, want %q", args.CertArgs.CertsDir, "/custom/certs")
+	}
+	if args.CertArgs.SSLCACertPath != "/custom/ca.crt" {
+		t.Errorf("SSLCACertPath = %q, want %q", args.CertArgs.SSLCACertPath, "/custom/ca.crt")
+	}
+	if args.CertArgs.StorePassword != "custompass" {
+		t.Errorf("StorePassword = %q, want %q", args.CertArgs.StorePassword, "custompass")
+	}
+	// Defaults preserved when not in cmdArgs
+	if args.CertArgs.ClientCertPath != "/default/client.crt" {
+		t.Errorf("ClientCertPath = %q, want %q (default preserved)", args.CertArgs.ClientCertPath, "/default/client.crt")
+	}
+	if args.CertArgs.ClientKeyPath != "/default/client.key" {
+		t.Errorf("ClientKeyPath = %q, want %q (default preserved)", args.CertArgs.ClientKeyPath, "/default/client.key")
+	}
+}
+
+func TestPopulateAuthArgsEmptyMap(t *testing.T) {
+	args := Args{
+		CertArgs: CertArgs{
+			CertsDir:      "/default/certs",
+			StorePassword: "changeit",
+		},
+	}
+	cmdArgs := map[string]string{}
+
+	populateAuthArgs(&args, cmdArgs)
+
+	// All defaults should be preserved
+	if args.CertArgs.CertsDir != "/default/certs" {
+		t.Errorf("CertsDir = %q, want %q", args.CertArgs.CertsDir, "/default/certs")
+	}
+	if args.CertArgs.StorePassword != "changeit" {
+		t.Errorf("StorePassword = %q, want %q", args.CertArgs.StorePassword, "changeit")
+	}
+	if args.KerberosArgs.UserPrincipal != "" {
+		t.Errorf("UserPrincipal = %q, want empty", args.KerberosArgs.UserPrincipal)
+	}
+	if args.LiquibaseArgs.JSONKey != "" {
+		t.Errorf("JSONKey = %q, want empty", args.LiquibaseArgs.JSONKey)
+	}
+}
+
+func TestPopulateAuthArgsAllFields(t *testing.T) {
+	args := Args{}
+	cmdArgs := map[string]string{
+		"PLUGIN_KERBEROS_USER_PRINCIPAL":   "user@REALM",
+		"PLUGIN_KERBEROS_PASSWORD":         "secret",
+		"PLUGIN_KERBEROS_KEYTAB_FILE_PATH": "/keytab",
+		"PLUGIN_JSON_KEY":                  `{"key":"val"}`,
+		"PLUGIN_CERTS_DIR":                 "/certs",
+		"PLUGIN_SSL_CA_CERT_PATH":          "/ca.crt",
+		"PLUGIN_CLIENT_CERT_PATH":          "/client.crt",
+		"PLUGIN_CLIENT_KEY_PATH":           "/client.key",
+		"PLUGIN_STORE_PASSWORD":            "pass",
+	}
+
+	populateAuthArgs(&args, cmdArgs)
+
+	if args.KerberosArgs.UserPrincipal != "user@REALM" {
+		t.Errorf("UserPrincipal = %q, want %q", args.KerberosArgs.UserPrincipal, "user@REALM")
+	}
+	if args.LiquibaseArgs.JSONKey != `{"key":"val"}` {
+		t.Errorf("JSONKey = %q, want %q", args.LiquibaseArgs.JSONKey, `{"key":"val"}`)
+	}
+	if args.CertArgs.CertsDir != "/certs" {
+		t.Errorf("CertsDir = %q, want %q", args.CertArgs.CertsDir, "/certs")
+	}
+	if args.CertArgs.ClientCertPath != "/client.crt" {
+		t.Errorf("ClientCertPath = %q, want %q", args.CertArgs.ClientCertPath, "/client.crt")
+	}
+	if args.CertArgs.ClientKeyPath != "/client.key" {
+		t.Errorf("ClientKeyPath = %q, want %q", args.CertArgs.ClientKeyPath, "/client.key")
+	}
+	if args.CertArgs.StorePassword != "pass" {
+		t.Errorf("StorePassword = %q, want %q", args.CertArgs.StorePassword, "pass")
 	}
 }
 

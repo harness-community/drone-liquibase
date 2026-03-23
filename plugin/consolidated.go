@@ -46,6 +46,44 @@ func decodeCommands(encoded string) ([]ConsolidatedCommand, error) {
 	return commands, nil
 }
 
+// populateAuthArgs overlays auth-related values from the first command's args
+// map onto the Args struct so that certificate, Kerberos, and GCP auth setup
+// in Exec() works correctly for the consolidated execution flow.
+func populateAuthArgs(args *Args, cmdArgs map[string]string) {
+	// Kerberos args
+	if v, ok := cmdArgs["PLUGIN_KERBEROS_USER_PRINCIPAL"]; ok {
+		args.KerberosArgs.UserPrincipal = v
+	}
+	if v, ok := cmdArgs["PLUGIN_KERBEROS_PASSWORD"]; ok {
+		args.KerberosArgs.Password = v
+	}
+	if v, ok := cmdArgs["PLUGIN_KERBEROS_KEYTAB_FILE_PATH"]; ok {
+		args.KerberosArgs.KeytabFilePath = v
+	}
+
+	// GCP auth
+	if v, ok := cmdArgs["PLUGIN_JSON_KEY"]; ok {
+		args.LiquibaseArgs.JSONKey = v
+	}
+
+	// Cert args (only override if present, keep defaults otherwise)
+	if v, ok := cmdArgs["PLUGIN_CERTS_DIR"]; ok {
+		args.CertArgs.CertsDir = v
+	}
+	if v, ok := cmdArgs["PLUGIN_SSL_CA_CERT_PATH"]; ok {
+		args.CertArgs.SSLCACertPath = v
+	}
+	if v, ok := cmdArgs["PLUGIN_CLIENT_CERT_PATH"]; ok {
+		args.CertArgs.ClientCertPath = v
+	}
+	if v, ok := cmdArgs["PLUGIN_CLIENT_KEY_PATH"]; ok {
+		args.CertArgs.ClientKeyPath = v
+	}
+	if v, ok := cmdArgs["PLUGIN_STORE_PASSWORD"]; ok {
+		args.CertArgs.StorePassword = v
+	}
+}
+
 // executeConsolidated runs multiple Liquibase commands sequentially.
 func executeConsolidated(args Args, globalOptions []string, commands []ConsolidatedCommand, pluginOutput *execution.Output) error {
 	logrus.Info("========================================")

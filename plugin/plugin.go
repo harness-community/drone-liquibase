@@ -79,6 +79,27 @@ func Exec(args Args) (mainErr error) {
 		logrus.Warn("JAVA_HOME not detected, some features may not work")
 	}
 
+	// Load global options
+	globalOptions, err := LoadGlobalOptions(args.GlobalOptionsFile)
+	if err != nil {
+		return fmt.Errorf("failed to load global options: %w", err)
+	}
+	logrus.Debugf("Loaded %d global options", len(globalOptions))
+
+	// For consolidated flow, decode commands early and populate auth args
+	// from the first command so that cert, Kerberos, and GCP auth setup
+	// works correctly (these values only exist in the command args map).
+	var commands []ConsolidatedCommand
+	if args.ConsolidatedCommand != "" {
+		commands, err = decodeCommands(args.ConsolidatedCommand)
+		if err != nil {
+			return fmt.Errorf("failed to decode PLUGIN_COMMANDS: %w", err)
+		}
+		if len(commands) > 0 {
+			populateAuthArgs(&args, commands[0].Args)
+		}
+	}
+
 	// Setup certificates
 	certManager := NewCertManager(args.CertArgs, javaHome)
 	javaOptsFromCerts, err := certManager.SetupCertificates(args.CertArgs)
@@ -120,19 +141,8 @@ func Exec(args Args) (mainErr error) {
 		os.Setenv("JAVA_OPTS", strings.Join(javaOptsParts, " "))
 	}
 
-	// Load global options
-	globalOptions, err := LoadGlobalOptions(args.GlobalOptionsFile)
-	if err != nil {
-		return fmt.Errorf("failed to load global options: %w", err)
-	}
-	logrus.Debugf("Loaded %d global options", len(globalOptions))
-
 	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS
-	if args.Commands != "" {
-		commands, err := decodeCommands(args.Commands)
-		if err != nil {
-			return fmt.Errorf("failed to decode PLUGIN_COMMANDS: %w", err)
-		}
+	if args.ConsolidatedCommand != "" {
 		return executeConsolidated(args, globalOptions, commands, pluginOutput)
 	}
 
@@ -178,7 +188,7 @@ func Exec(args Args) (mainErr error) {
 
 // validateInputs validates the required plugin inputs.
 func validateInputs(args Args) error {
-	if args.Command == "" && args.Commands == "" {
+	if args.Command == "" && args.ConsolidatedCommand == "" {
 		return fmt.Errorf("PLUGIN_COMMAND or PLUGIN_COMMANDS is required")
 	}
 	return nil

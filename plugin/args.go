@@ -33,8 +33,8 @@ type LiquibaseArgs struct {
 	// Command is the Liquibase command to execute (e.g., update, rollback)
 	Command string `envconfig:"PLUGIN_COMMAND"`
 
-	// Commands is a base64-encoded JSON array of commands for consolidated execution
-	Commands string `envconfig:"PLUGIN_COMMANDS"`
+	// ConsolidatedCommand is a base64-encoded JSON array of commands for consolidated execution
+	ConsolidatedCommand string `envconfig:"PLUGIN_COMMANDS"`
 
 	// SubstituteLiquibase contains base64+zstd encoded JSON for changelog substitutions
 	SubstituteLiquibase string `envconfig:"PLUGIN_SUBSTITUTE_LIQUIBASE"`
