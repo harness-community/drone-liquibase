@@ -133,6 +133,15 @@ func Exec(args Args) (mainErr error) {
 		cleanupFuncs = append(cleanupFuncs, gcpCleanup)
 	}
 
+	// Setup GCP OIDC Workload Identity Federation authentication
+	gcpOIDCCleanup, err := SetupGCPOIDCAuth(args.GCPOIDCArgs)
+	if err != nil {
+		return fmt.Errorf("GCP OIDC auth setup failed: %w", err)
+	}
+	if gcpOIDCCleanup != nil {
+		cleanupFuncs = append(cleanupFuncs, gcpOIDCCleanup)
+	}
+
 	// Set JAVA_OPTS
 	var javaOptsParts []string
 	if existingOpts := os.Getenv("JAVA_OPTS"); existingOpts != "" {
