@@ -242,7 +242,7 @@ func TestExecuteConsolidatedStructFieldSync(t *testing.T) {
 			Command: "hello",
 			Args: map[string]string{
 				"PLUGIN_SUBSTITUTE_LIQUIBASE": "some-encoded-value",
-				"GENERATE_STEP_OUTPUTS":      "true",
+				"GENERATE_STEP_OUTPUTS":       "true",
 			},
 		},
 	}
@@ -377,5 +377,73 @@ func TestConsolidatedCommandNoArgs(t *testing.T) {
 	}
 	if decoded.Args != nil {
 		t.Errorf("Args should be nil, got %v", decoded.Args)
+	}
+}
+
+func TestConsolidatedTagFailsUpdateSkipped(t *testing.T) {
+	origRunCmd := runCommandWithOutput
+	var executedCommands []string
+	runCommandWithOutput = func(name string, args ...string) (int, []byte, error) {
+		// Extract the command name from args (it appears after global options)
+		for _, arg := range args {
+			if arg == "tag" || arg == "update" {
+				executedCommands = append(executedCommands, arg)
+				break
+			}
+		}
+		if len(executedCommands) > 0 && executedCommands[len(executedCommands)-1] == "tag" {
+			return 1, nil, fmt.Errorf("tag failed")
+		}
+		return 0, nil, nil
+	}
+	defer func() { runCommandWithOutput = origRunCmd }()
+
+	commands := []ConsolidatedCommand{
+		{Command: "tag", Args: map[string]string{"PLUGIN_LIQUIBASE_TAG": "v1.0"}},
+		{Command: "update", Args: map[string]string{}},
+	}
+
+	pluginOutput := execution.NewOutput()
+	args := Args{}
+
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
+	if err == nil {
+		t.Fatal("executeConsolidated() should error when TAG fails")
+	}
+	if len(executedCommands) != 1 || executedCommands[0] != "tag" {
+		t.Errorf("only 'tag' should have executed, got: %v", executedCommands)
+	}
+}
+
+func TestConsolidatedPostUpdateSnapshotFails(t *testing.T) {
+	origRunCmd := runCommandWithOutput
+	callCount := 0
+	runCommandWithOutput = func(name string, args ...string) (int, []byte, error) {
+		callCount++
+		// Command 1 (tag) succeeds, command 2 (snapshot) fails
+		if callCount == 2 {
+			return 1, nil, fmt.Errorf("snapshot failed")
+		}
+		return 0, nil, nil
+	}
+	defer func() { runCommandWithOutput = origRunCmd }()
+
+	commands := []ConsolidatedCommand{
+		{Command: "tag", Args: map[string]string{"PLUGIN_LIQUIBASE_TAG": "user-tag"}},
+		{Command: "snapshot", Args: map[string]string{}},
+	}
+
+	pluginOutput := execution.NewOutput()
+	args := Args{}
+
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
+	if err == nil {
+		t.Fatal("executeConsolidated() should error when SNAPSHOT fails")
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 command executions, got %d", callCount)
+	}
+	if !strings.Contains(err.Error(), "command 2") {
+		t.Errorf("error should reference command 2, got: %v", err)
 	}
 }
