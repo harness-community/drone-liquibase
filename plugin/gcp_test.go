@@ -191,6 +191,27 @@ func TestSetupGCPOIDCAuthPostgresUsername(t *testing.T) {
 	}
 }
 
+func TestIsMySQLURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"jdbc:mysql://localhost:3306/db", true},
+		{"JDBC:MYSQL://localhost:3306/db", true},
+		{"jdbc:postgresql://localhost:5432/db", false},
+		{"jdbc:cloudspanner:/projects/my-project/instances/my-instance/databases/my-db", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			if got := isMySQLURL(tt.url); got != tt.want {
+				t.Errorf("isMySQLURL(%q) = %v, want %v", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetFederatedTokenInvalidEndpoint(t *testing.T) {
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-id-token",

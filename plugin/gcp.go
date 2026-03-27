@@ -38,8 +38,25 @@ const (
 
 	spannerURLPrefix  = "jdbc:cloudspanner:"
 	postgresURLPrefix = "jdbc:postgresql:"
+	mysqlURLPrefix    = "jdbc:mysql:"
 
 	gcpServiceAccountSuffix = ".gserviceaccount.com"
+
+	headerAuthorization = "Authorization"
+	headerContentType   = "Content-Type"
+	contentTypeJSON     = "application/json"
+	bearerTokenFormat   = "Bearer %s"
+
+	stsParamGrantType          = "grant_type"
+	stsParamSubjectToken       = "subject_token"
+	stsParamAudience           = "audience"
+	stsParamScope              = "scope"
+	stsParamRequestedTokenType = "requested_token_type"
+	stsParamSubjectTokenType   = "subject_token_type"
+
+	envPluginLiquibaseURL      = "PLUGIN_LIQUIBASE_URL"
+	envPluginLiquibaseUsername = "PLUGIN_LIQUIBASE_USERNAME"
+	envPluginLiquibasePassword = "PLUGIN_LIQUIBASE_PASSWORD"
 )
 
 // stsTokenResponse represents the response from the STS token exchange endpoint.
@@ -87,27 +104,35 @@ func SetupGCPOIDCAuth(args GCPOIDCArgs) (cleanup func(), err error) {
 	logrus.Info("Successfully obtained GCP access token via service account impersonation")
 
 	// Step 3: Configure Liquibase credentials based on database type
-	liquibaseURL := os.Getenv("PLUGIN_LIQUIBASE_URL")
+	liquibaseURL := os.Getenv(envPluginLiquibaseURL)
 	var envVarsSet []string
 
 	if isSpannerURL(liquibaseURL) {
 		// Spanner does not support username/password.
 		// Pass the access token via the oauthToken URL property.
 		cleanURL := strings.TrimRight(liquibaseURL, ";?")
-		os.Setenv("PLUGIN_LIQUIBASE_URL", cleanURL+";oauthToken="+accessToken)
-		envVarsSet = append(envVarsSet, "PLUGIN_LIQUIBASE_URL")
+		os.Setenv(envPluginLiquibaseURL, cleanURL+";oauthToken="+accessToken)
+		envVarsSet = append(envVarsSet, envPluginLiquibaseURL)
 		logrus.Info("Configured Spanner OIDC auth via oauthToken URL property")
+	} else if isPostgresURL(liquibaseURL) {
+		// CloudSQL PostgreSQL: username is email without .gserviceaccount.com
+		username := strings.Replace(args.ServiceAccountEmail, gcpServiceAccountSuffix, "", 1)
+		os.Setenv(envPluginLiquibaseUsername, username)
+		os.Setenv(envPluginLiquibasePassword, accessToken)
+		envVarsSet = append(envVarsSet, envPluginLiquibaseUsername, envPluginLiquibasePassword)
+		logrus.Infof("Configured CloudSQL PostgreSQL OIDC auth with username: %s", username)
+	} else if isMySQLURL(liquibaseURL) {
+		// CloudSQL MySQL: username is the full service account email
+		os.Setenv(envPluginLiquibaseUsername, args.ServiceAccountEmail)
+		os.Setenv(envPluginLiquibasePassword, accessToken)
+		envVarsSet = append(envVarsSet, envPluginLiquibaseUsername, envPluginLiquibasePassword)
+		logrus.Infof("Configured CloudSQL MySQL OIDC auth with username: %s", args.ServiceAccountEmail)
 	} else {
-		// CloudSQL MySQL/PostgreSQL use the access token as the JDBC password
-		// and the service account email as the username.
-		username := args.ServiceAccountEmail
-		if isPostgresURL(liquibaseURL) {
-			username = strings.Replace(username, gcpServiceAccountSuffix, "", 1)
-		}
-		os.Setenv("PLUGIN_LIQUIBASE_USERNAME", username)
-		os.Setenv("PLUGIN_LIQUIBASE_PASSWORD", accessToken)
-		envVarsSet = append(envVarsSet, "PLUGIN_LIQUIBASE_USERNAME", "PLUGIN_LIQUIBASE_PASSWORD")
-		logrus.Infof("Configured CloudSQL OIDC auth with username: %s", username)
+		// Unknown database type: use full service account email as username
+		os.Setenv(envPluginLiquibaseUsername, args.ServiceAccountEmail)
+		os.Setenv(envPluginLiquibasePassword, accessToken)
+		envVarsSet = append(envVarsSet, envPluginLiquibaseUsername, envPluginLiquibasePassword)
+		logrus.Warnf("Unknown JDBC URL type, using full service account email as username: %s", args.ServiceAccountEmail)
 	}
 
 	cleanup = func() {
@@ -129,17 +154,22 @@ func isPostgresURL(jdbcURL string) bool {
 	return strings.HasPrefix(strings.ToLower(jdbcURL), postgresURLPrefix)
 }
 
+// isMySQLURL checks if the JDBC URL targets MySQL.
+func isMySQLURL(jdbcURL string) bool {
+	return strings.HasPrefix(strings.ToLower(jdbcURL), mysqlURLPrefix)
+}
+
 // getFederatedToken exchanges an OIDC ID token for a federated token using the GCP STS endpoint.
 func getFederatedToken(args GCPOIDCArgs) (string, error) {
 	audience := fmt.Sprintf(gcpAudienceFormat, args.ProjectID, args.WorkloadPoolID, args.ProviderID)
 
 	data := url.Values{
-		"grant_type":           {gcpGrantTypeTokenExchange},
-		"subject_token":        {args.OIDCIDToken},
-		"audience":             {audience},
-		"scope":                {gcpScopeURL},
-		"requested_token_type": {gcpTokenTypeAccessToken},
-		"subject_token_type":   {gcpTokenTypeIDToken},
+		stsParamGrantType:          {gcpGrantTypeTokenExchange},
+		stsParamSubjectToken:       {args.OIDCIDToken},
+		stsParamAudience:           {audience},
+		stsParamScope:              {gcpScopeURL},
+		stsParamRequestedTokenType: {gcpTokenTypeAccessToken},
+		stsParamSubjectTokenType:   {gcpTokenTypeIDToken},
 	}
 
 	resp, err := http.PostForm(stsTokenURL, data)
@@ -180,8 +210,8 @@ func getGCPAccessToken(federatedToken, serviceAccountEmail string) (string, erro
 		return "", fmt.Errorf("failed to create impersonation request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+federatedToken)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerAuthorization, fmt.Sprintf(bearerTokenFormat, federatedToken))
+	req.Header.Set(headerContentType, contentTypeJSON)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
