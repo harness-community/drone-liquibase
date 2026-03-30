@@ -15,25 +15,24 @@
 package plugin
 
 import (
-	"os"
 	"testing"
 )
 
-func TestSetupGCPOIDCAuthNoToken(t *testing.T) {
+func TestConfigureGCPOIDCAuthNoToken(t *testing.T) {
 	args := GCPOIDCArgs{
 		OIDCIDToken: "", // Not configured
 	}
 
-	cleanup, err := SetupGCPOIDCAuth(args)
+	overrides, err := ConfigureGCPOIDCAuth(args, "")
 	if err != nil {
-		t.Errorf("SetupGCPOIDCAuth() with no token should not error, got: %v", err)
+		t.Errorf("ConfigureGCPOIDCAuth() with no token should not error, got: %v", err)
 	}
-	if cleanup != nil {
-		t.Error("cleanup should be nil when OIDC token not provided")
+	if overrides != nil {
+		t.Error("overrides should be nil when OIDC token not provided")
 	}
 }
 
-func TestSetupGCPOIDCAuthMissingRequiredFields(t *testing.T) {
+func TestConfigureGCPOIDCAuthMissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name string
 		args GCPOIDCArgs
@@ -82,9 +81,9 @@ func TestSetupGCPOIDCAuthMissingRequiredFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := SetupGCPOIDCAuth(tt.args)
+			_, err := ConfigureGCPOIDCAuth(tt.args, "")
 			if err == nil {
-				t.Error("SetupGCPOIDCAuth() should error when required fields are missing")
+				t.Error("ConfigureGCPOIDCAuth() should error when required fields are missing")
 			}
 			expectedMsg := "GCP OIDC auth requires project_id, workload_pool_id, provider_id, and service_account_email"
 			if err.Error() != expectedMsg {
@@ -136,18 +135,12 @@ func TestIsPostgresURL(t *testing.T) {
 	}
 }
 
-func TestSetupGCPOIDCAuthSpannerURL(t *testing.T) {
-	// Save and restore env
-	origURL := os.Getenv("PLUGIN_LIQUIBASE_URL")
-	defer os.Setenv("PLUGIN_LIQUIBASE_URL", origURL)
-
+func TestConfigureGCPOIDCAuthSpannerURL(t *testing.T) {
 	spannerURL := "jdbc:cloudspanner:/projects/my-project/instances/my-instance/databases/my-db"
-	os.Setenv("PLUGIN_LIQUIBASE_URL", spannerURL)
 
 	// We can't test the full flow without real GCP credentials, but we can
-	// verify the URL detection logic by checking that the function reads
-	// PLUGIN_LIQUIBASE_URL and would enter the Spanner branch.
-	// The STS call will fail, which is expected.
+	// verify the URL detection logic by checking that the function would
+	// enter the Spanner branch. The STS call will fail, which is expected.
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-token",
 		ProjectID:           "123456",
@@ -156,26 +149,14 @@ func TestSetupGCPOIDCAuthSpannerURL(t *testing.T) {
 		ServiceAccountEmail: "sa@proj.iam.gserviceaccount.com",
 	}
 
-	_, err := SetupGCPOIDCAuth(args)
+	_, err := ConfigureGCPOIDCAuth(args, spannerURL)
 	// Expected to fail at STS token exchange (no real credentials)
 	if err == nil {
-		t.Error("SetupGCPOIDCAuth() should error with fake token")
+		t.Error("ConfigureGCPOIDCAuth() should error with fake token")
 	}
 }
 
-func TestSetupGCPOIDCAuthPostgresUsername(t *testing.T) {
-	// Test that PostgreSQL username strips .gserviceaccount.com
-	origURL := os.Getenv("PLUGIN_LIQUIBASE_URL")
-	origUser := os.Getenv("PLUGIN_LIQUIBASE_USERNAME")
-	origPass := os.Getenv("PLUGIN_LIQUIBASE_PASSWORD")
-	defer func() {
-		os.Setenv("PLUGIN_LIQUIBASE_URL", origURL)
-		os.Setenv("PLUGIN_LIQUIBASE_USERNAME", origUser)
-		os.Setenv("PLUGIN_LIQUIBASE_PASSWORD", origPass)
-	}()
-
-	os.Setenv("PLUGIN_LIQUIBASE_URL", "jdbc:postgresql://localhost:5432/db")
-
+func TestConfigureGCPOIDCAuthPostgresUsername(t *testing.T) {
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-token",
 		ProjectID:           "123456",
@@ -185,9 +166,9 @@ func TestSetupGCPOIDCAuthPostgresUsername(t *testing.T) {
 	}
 
 	// Will fail at STS, but verifies the function starts correctly
-	_, err := SetupGCPOIDCAuth(args)
+	_, err := ConfigureGCPOIDCAuth(args, "jdbc:postgresql://localhost:5432/db")
 	if err == nil {
-		t.Error("SetupGCPOIDCAuth() should error with fake token")
+		t.Error("ConfigureGCPOIDCAuth() should error with fake token")
 	}
 }
 

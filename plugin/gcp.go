@@ -20,7 +20,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -72,13 +71,13 @@ type iamAccessTokenResponse struct {
 	ExpireTime  string `json:"expireTime"`
 }
 
-// SetupGCPOIDCAuth exchanges an OIDC ID token for a GCP access token via
-// Workload Identity Federation, then configures Liquibase credentials based
-// on the target database type:
-//   - Spanner: appends ;oauthToken=<token> to the JDBC URL
-//   - CloudSQL PostgreSQL: sets username (email without .gserviceaccount.com) + password
-//   - CloudSQL MySQL: sets username (full service account email) + password
-func SetupGCPOIDCAuth(args GCPOIDCArgs) (cleanup func(), err error) {
+// ConfigureGCPOIDCAuth exchanges an OIDC ID token for a GCP access token via
+// Workload Identity Federation, then returns env var overrides for Liquibase
+// credentials based on the target database type:
+//   - Spanner: overrides PLUGIN_LIQUIBASE_URL with ;oauthToken=<token> appended
+//   - CloudSQL PostgreSQL: overrides username (email without .gserviceaccount.com) + password
+//   - CloudSQL MySQL: overrides username (full service account email) + password
+func ConfigureGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (overrides map[string]string, err error) {
 	if args.OIDCIDToken == "" {
 		return nil, nil
 	}
@@ -103,45 +102,34 @@ func SetupGCPOIDCAuth(args GCPOIDCArgs) (cleanup func(), err error) {
 	}
 	logrus.Info("Successfully obtained GCP access token via service account impersonation")
 
-	// Step 3: Configure Liquibase credentials based on database type
-	liquibaseURL := os.Getenv(envPluginLiquibaseURL)
-	var envVarsSet []string
+	// Step 3: Build env var overrides based on database type
+	overrides = make(map[string]string)
 
 	if isSpannerURL(liquibaseURL) {
 		// Spanner does not support username/password.
 		// Pass the access token via the oauthToken URL property.
 		cleanURL := strings.TrimRight(liquibaseURL, ";?")
-		os.Setenv(envPluginLiquibaseURL, cleanURL+";oauthToken="+accessToken)
-		envVarsSet = append(envVarsSet, envPluginLiquibaseURL)
+		overrides[envPluginLiquibaseURL] = cleanURL + ";oauthToken=" + accessToken
 		logrus.Info("Configured Spanner OIDC auth via oauthToken URL property")
 	} else if isPostgresURL(liquibaseURL) {
 		// CloudSQL PostgreSQL: username is email without .gserviceaccount.com
 		username := strings.Replace(args.ServiceAccountEmail, gcpServiceAccountSuffix, "", 1)
-		os.Setenv(envPluginLiquibaseUsername, username)
-		os.Setenv(envPluginLiquibasePassword, accessToken)
-		envVarsSet = append(envVarsSet, envPluginLiquibaseUsername, envPluginLiquibasePassword)
+		overrides[envPluginLiquibaseUsername] = username
+		overrides[envPluginLiquibasePassword] = accessToken
 		logrus.Infof("Configured CloudSQL PostgreSQL OIDC auth with username: %s", username)
 	} else if isMySQLURL(liquibaseURL) {
 		// CloudSQL MySQL: username is the full service account email
-		os.Setenv(envPluginLiquibaseUsername, args.ServiceAccountEmail)
-		os.Setenv(envPluginLiquibasePassword, accessToken)
-		envVarsSet = append(envVarsSet, envPluginLiquibaseUsername, envPluginLiquibasePassword)
+		overrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
+		overrides[envPluginLiquibasePassword] = accessToken
 		logrus.Infof("Configured CloudSQL MySQL OIDC auth with username: %s", args.ServiceAccountEmail)
 	} else {
 		// Unknown database type: use full service account email as username
-		os.Setenv(envPluginLiquibaseUsername, args.ServiceAccountEmail)
-		os.Setenv(envPluginLiquibasePassword, accessToken)
-		envVarsSet = append(envVarsSet, envPluginLiquibaseUsername, envPluginLiquibasePassword)
+		overrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
+		overrides[envPluginLiquibasePassword] = accessToken
 		logrus.Warnf("Unknown JDBC URL type, using full service account email as username: %s", args.ServiceAccountEmail)
 	}
 
-	cleanup = func() {
-		for _, envVar := range envVarsSet {
-			os.Unsetenv(envVar)
-		}
-	}
-
-	return cleanup, nil
+	return overrides, nil
 }
 
 // isSpannerURL checks if the JDBC URL targets Cloud Spanner.

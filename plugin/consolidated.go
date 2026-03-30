@@ -47,7 +47,10 @@ func decodeCommands(encoded string) ([]ConsolidatedCommand, error) {
 }
 
 // executeConsolidated runs multiple Liquibase commands sequentially.
-func executeConsolidated(args Args, globalOptions []string, commands []ConsolidatedCommand, pluginOutput *execution.Output) error {
+// authOverrides are env var overrides from auth setup (e.g. GCP OIDC) that
+// take precedence over per-command args to prevent commands from clobbering
+// auth-configured values.
+func executeConsolidated(args Args, globalOptions []string, commands []ConsolidatedCommand, authOverrides map[string]string, pluginOutput *execution.Output) error {
 	logrus.Info("========================================")
 	logrus.Info("Running consolidated execution flow...")
 	logrus.Info("========================================")
@@ -64,6 +67,12 @@ func executeConsolidated(args Args, globalOptions []string, commands []Consolida
 		// e.g. PLUGIN_LIQUIBASE_USERNAME, PLUGIN_BEARER_TOKEN)
 		var setEnvVars []string
 		for key, value := range cmd.Args {
+			os.Setenv(key, value)
+			setEnvVars = append(setEnvVars, key)
+		}
+
+		// Apply auth overrides on top — auth-configured values always win
+		for key, value := range authOverrides {
 			os.Setenv(key, value)
 			setEnvVars = append(setEnvVars, key)
 		}
