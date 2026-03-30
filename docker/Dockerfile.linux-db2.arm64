@@ -13,10 +13,10 @@ FROM alpine:3.17 AS alpine
 RUN apk add -U --no-cache ca-certificates openssl jq=1.6-r2 oniguruma=6.9.8-r0 zstd=1.5.5-r0
 
 COPY scripts/download-common.sh /scripts/download-common.sh
-COPY scripts/download-cloudsql.sh /scripts/download-cloudsql.sh
-RUN chmod +x /scripts/download-common.sh /scripts/download-cloudsql.sh \
+COPY scripts/download-db2.sh /scripts/download-db2.sh
+RUN chmod +x /scripts/download-common.sh /scripts/download-db2.sh \
  && /scripts/download-common.sh \
- && /scripts/download-cloudsql.sh
+ && /scripts/download-db2.sh
 
 # Clean liquibase bits in a throwaway builder so removed jars never land in the final image
 FROM liquibase/liquibase:4.33-alpine AS liquibase-builder
@@ -32,7 +32,14 @@ RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
 # Fresh final image - removed jars never exist in these layers
 # Pinned to Alpine 3.23 for dependency stability
 FROM eclipse-temurin:21.0.10_7-jre-alpine-3.23
-RUN apk upgrade --no-cache gnutls libpng zlib && apk add --no-cache bash krb5
+ARG GNUTLS_VERSION="3.8.12-r0"
+ARG ZLIB_VERSION="1.3.2-r0"
+RUN apk add --no-cache --upgrade \
+    "gnutls=${GNUTLS_VERSION}" \
+    "zlib=${ZLIB_VERSION}" \
+    libpng \
+    bash \
+    krb5
 
 ENV PATH="/liquibase:${PATH}"
 WORKDIR /liquibase
@@ -53,7 +60,7 @@ COPY --from=alpine /usr/bin/zstd /usr/bin/zstd
 # Copy jq dependencies
 COPY --from=alpine /usr/bin/jq /usr/bin/jq
 COPY --from=alpine /usr/lib/libonig.so.5 /usr/lib/libonig.so.5
-# Copy common JARs and CloudSQL socket factory JAR from alpine stage
+# Copy common JARs and DB2 JCC driver from alpine stage
 COPY --from=alpine /liquibase/lib /liquibase/lib
 
 COPY NOTICE /liquibase/NOTICE
