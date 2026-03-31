@@ -30,6 +30,7 @@ type Args struct {
 	LiquibaseArgs
 	CertArgs
 	KerberosArgs
+	GCPOIDCArgs
 
 	LogLevel        string        `envconfig:"PLUGIN_LOG_LEVEL" default:"info"`
 	Timeout         time.Duration `envconfig:"PLUGIN_TIMEOUT" default:"30m"`
@@ -70,6 +71,24 @@ type CertArgs struct {
 
 	// StorePassword is the password for the keystore/truststore
 	StorePassword string `envconfig:"PLUGIN_STORE_PASSWORD" default:"changeit"`
+}
+
+// GCPOIDCArgs contains GCP OIDC Workload Identity Federation configuration.
+type GCPOIDCArgs struct {
+	// OIDCIDToken is the OIDC ID token to exchange for a GCP access token
+	OIDCIDToken string `envconfig:"PLUGIN_GCP_OIDC_TOKEN"`
+
+	// ProjectID is the GCP project number
+	ProjectID string `envconfig:"PLUGIN_GCP_OIDC_PROJECT_ID"`
+
+	// WorkloadPoolID is the Workload Identity Pool ID
+	WorkloadPoolID string `envconfig:"PLUGIN_GCP_OIDC_WORKLOAD_POOL_ID"`
+
+	// ProviderID is the Workload Identity Provider ID
+	ProviderID string `envconfig:"PLUGIN_GCP_OIDC_PROVIDER_ID"`
+
+	// ServiceAccountEmail is the GCP service account email to impersonate
+	ServiceAccountEmail string `envconfig:"PLUGIN_GCP_OIDC_SERVICE_ACCOUNT_EMAIL"`
 }
 
 // KerberosArgs contains Kerberos authentication configuration.
