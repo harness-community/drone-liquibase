@@ -133,23 +133,9 @@ func Exec(args Args) (mainErr error) {
 		cleanupFuncs = append(cleanupFuncs, gcpCleanup)
 	}
 
-	// Setup GCP OIDC Workload Identity Federation authentication.
-	// Returns env var overrides that must take precedence over per-command args.
-	authOverrides, err := ConfigureGCPOIDCAuth(args.GCPOIDCArgs, os.Getenv(envPluginLiquibaseURL))
-	if err != nil {
+	envOverrides := make(map[string]string)
+	if err := ModifyGcpOidcAuthOverrides(args.GCPOIDCArgs, os.Getenv(envPluginLiquibaseURL), envOverrides); err != nil {
 		return fmt.Errorf("GCP OIDC auth setup failed: %w", err)
-	}
-	// Apply overrides to current env for single-command flow
-	for key, value := range authOverrides {
-		os.Setenv(key, value)
-	}
-	// Cleanup: unset auth overrides on exit
-	if len(authOverrides) > 0 {
-		cleanupFuncs = append(cleanupFuncs, func() {
-			for key := range authOverrides {
-				os.Unsetenv(key)
-			}
-		})
 	}
 
 	// Set JAVA_OPTS
@@ -169,10 +155,17 @@ func Exec(args Args) (mainErr error) {
 
 	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS
 	if args.ConsolidatedCommand != "" {
-		return executeConsolidated(args, globalOptions, commands, authOverrides, pluginOutput)
+		return executeConsolidated(args, globalOptions, commands, envOverrides, pluginOutput)
 	}
 
-	// Single command execution flow
+	// Single command execution flow — apply auth overrides to env vars
+	applyEnvOverrides(envOverrides)
+	// Cleanup: unset env overrides on exit
+	if len(envOverrides) > 0 {
+		cleanupFuncs = append(cleanupFuncs, func() {
+			unsetEnvOverrides(envOverrides)
+		})
+	}
 	builder := NewCommandBuilder(globalOptions)
 	commandArgs, err := builder.BuildArgs(args)
 	if err != nil {

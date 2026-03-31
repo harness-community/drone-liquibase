@@ -71,19 +71,19 @@ type iamAccessTokenResponse struct {
 	ExpireTime  string `json:"expireTime"`
 }
 
-// ConfigureGCPOIDCAuth exchanges an OIDC ID token for a GCP access token via
-// Workload Identity Federation, then returns env var overrides for Liquibase
-// credentials based on the target database type:
-//   - Spanner: overrides PLUGIN_LIQUIBASE_URL with ;oauthToken=<token> appended
-//   - CloudSQL PostgreSQL: overrides username (email without .gserviceaccount.com) + password
-//   - CloudSQL MySQL: overrides username (full service account email) + password
-func ConfigureGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (overrides map[string]string, err error) {
+// ModifyGcpOidcAuthOverrides exchanges an OIDC ID token for a GCP access token via
+// Workload Identity Federation, then populates envOverrides with Liquibase
+// credential env vars based on the target database type:
+//   - Spanner: sets PLUGIN_LIQUIBASE_URL with ;oauthToken=<token> appended
+//   - CloudSQL PostgreSQL: sets username (email without .gserviceaccount.com) + password
+//   - CloudSQL MySQL: sets username (full service account email) + password
+func ModifyGcpOidcAuthOverrides(args GCPOIDCArgs, liquibaseURL string, envOverrides map[string]string) error {
 	if args.OIDCIDToken == "" {
-		return nil, nil
+		return nil
 	}
 
 	if args.ProjectID == "" || args.WorkloadPoolID == "" || args.ProviderID == "" || args.ServiceAccountEmail == "" {
-		return nil, fmt.Errorf("GCP OIDC auth requires project_id, workload_pool_id, provider_id, and service_account_email")
+		return fmt.Errorf("GCP OIDC auth requires project_id, workload_pool_id, provider_id, and service_account_email")
 	}
 
 	logrus.Info("Setting up GCP OIDC Workload Identity Federation authentication...")
@@ -91,45 +91,43 @@ func ConfigureGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (overrides map[
 	// Step 1: Exchange OIDC ID token for a federated (STS) token
 	federatedToken, err := getFederatedToken(args)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get federated token: %w", err)
+		return fmt.Errorf("failed to get federated token: %w", err)
 	}
 	logrus.Info("Successfully obtained federated token via STS token exchange")
 
 	// Step 2: Exchange federated token for a GCP access token via service account impersonation
 	accessToken, err := getGCPAccessToken(federatedToken, args.ServiceAccountEmail)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get GCP access token: %w", err)
+		return fmt.Errorf("failed to get GCP access token: %w", err)
 	}
 	logrus.Info("Successfully obtained GCP access token via service account impersonation")
 
-	// Step 3: Build env var overrides based on database type
-	overrides = make(map[string]string)
-
+	// Step 3: Populate auth overrides based on database type
 	if isSpannerURL(liquibaseURL) {
 		// Spanner does not support username/password.
 		// Pass the access token via the oauthToken URL property.
 		cleanURL := strings.TrimRight(liquibaseURL, ";?")
-		overrides[envPluginLiquibaseURL] = cleanURL + ";oauthToken=" + accessToken
+		envOverrides[envPluginLiquibaseURL] = cleanURL + ";oauthToken=" + url.QueryEscape(accessToken)
 		logrus.Info("Configured Spanner OIDC auth via oauthToken URL property")
 	} else if isPostgresURL(liquibaseURL) {
 		// CloudSQL PostgreSQL: username is email without .gserviceaccount.com
 		username := strings.Replace(args.ServiceAccountEmail, gcpServiceAccountSuffix, "", 1)
-		overrides[envPluginLiquibaseUsername] = username
-		overrides[envPluginLiquibasePassword] = accessToken
+		envOverrides[envPluginLiquibaseUsername] = username
+		envOverrides[envPluginLiquibasePassword] = accessToken
 		logrus.Infof("Configured CloudSQL PostgreSQL OIDC auth with username: %s", username)
 	} else if isMySQLURL(liquibaseURL) {
 		// CloudSQL MySQL: username is the full service account email
-		overrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
-		overrides[envPluginLiquibasePassword] = accessToken
+		envOverrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
+		envOverrides[envPluginLiquibasePassword] = accessToken
 		logrus.Infof("Configured CloudSQL MySQL OIDC auth with username: %s", args.ServiceAccountEmail)
 	} else {
 		// Unknown database type: use full service account email as username
-		overrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
-		overrides[envPluginLiquibasePassword] = accessToken
+		envOverrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
+		envOverrides[envPluginLiquibasePassword] = accessToken
 		logrus.Warnf("Unknown JDBC URL type, using full service account email as username: %s", args.ServiceAccountEmail)
 	}
 
-	return overrides, nil
+	return nil
 }
 
 // isSpannerURL checks if the JDBC URL targets Cloud Spanner.

@@ -370,7 +370,7 @@ func TestAuthOverridesTakePrecedenceInConsolidatedCommands(t *testing.T) {
 		{Command: "update", Args: map[string]string{envPluginLiquibaseURL: originalURL}},
 	}
 
-	authOverrides := map[string]string{
+	envOverrides := map[string]string{
 		envPluginLiquibaseURL: modifiedURL,
 	}
 
@@ -384,7 +384,7 @@ func TestAuthOverridesTakePrecedenceInConsolidatedCommands(t *testing.T) {
 
 	pluginOutput := execution.NewOutput()
 	args := Args{}
-	err := executeConsolidated(args, []string{}, commands, authOverrides, pluginOutput)
+	err := executeConsolidated(args, []string{}, commands, envOverrides, pluginOutput)
 	if err != nil {
 		t.Fatalf("executeConsolidated() error = %v", err)
 	}

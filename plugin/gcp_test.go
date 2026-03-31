@@ -18,21 +18,22 @@ import (
 	"testing"
 )
 
-func TestConfigureGCPOIDCAuthNoToken(t *testing.T) {
+func TestModifyGcpOidcAuthOverridesNoToken(t *testing.T) {
 	args := GCPOIDCArgs{
 		OIDCIDToken: "", // Not configured
 	}
 
-	overrides, err := ConfigureGCPOIDCAuth(args, "")
+	overrides := make(map[string]string)
+	err := ModifyGcpOidcAuthOverrides(args, "", overrides)
 	if err != nil {
-		t.Errorf("ConfigureGCPOIDCAuth() with no token should not error, got: %v", err)
+		t.Errorf("ModifyGcpOidcAuthOverrides() with no token should not error, got: %v", err)
 	}
-	if overrides != nil {
-		t.Error("overrides should be nil when OIDC token not provided")
+	if len(overrides) != 0 {
+		t.Errorf("overrides should be empty when OIDC token not provided, got %v", overrides)
 	}
 }
 
-func TestConfigureGCPOIDCAuthMissingRequiredFields(t *testing.T) {
+func TestModifyGcpOidcAuthOverridesMissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name string
 		args GCPOIDCArgs
@@ -81,9 +82,10 @@ func TestConfigureGCPOIDCAuthMissingRequiredFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ConfigureGCPOIDCAuth(tt.args, "")
+			overrides := make(map[string]string)
+			err := ModifyGcpOidcAuthOverrides(tt.args, "", overrides)
 			if err == nil {
-				t.Error("ConfigureGCPOIDCAuth() should error when required fields are missing")
+				t.Error("ModifyGcpOidcAuthOverrides() should error when required fields are missing")
 			}
 			expectedMsg := "GCP OIDC auth requires project_id, workload_pool_id, provider_id, and service_account_email"
 			if err.Error() != expectedMsg {
@@ -135,7 +137,7 @@ func TestIsPostgresURL(t *testing.T) {
 	}
 }
 
-func TestConfigureGCPOIDCAuthSpannerURL(t *testing.T) {
+func TestModifyGcpOidcAuthOverridesSpannerURL(t *testing.T) {
 	spannerURL := "jdbc:cloudspanner:/projects/my-project/instances/my-instance/databases/my-db"
 
 	// We can't test the full flow without real GCP credentials, but we can
@@ -149,14 +151,15 @@ func TestConfigureGCPOIDCAuthSpannerURL(t *testing.T) {
 		ServiceAccountEmail: "sa@proj.iam.gserviceaccount.com",
 	}
 
-	_, err := ConfigureGCPOIDCAuth(args, spannerURL)
+	overrides := make(map[string]string)
+	err := ModifyGcpOidcAuthOverrides(args, spannerURL, overrides)
 	// Expected to fail at STS token exchange (no real credentials)
 	if err == nil {
-		t.Error("ConfigureGCPOIDCAuth() should error with fake token")
+		t.Error("ModifyGcpOidcAuthOverrides() should error with fake token")
 	}
 }
 
-func TestConfigureGCPOIDCAuthPostgresUsername(t *testing.T) {
+func TestModifyGcpOidcAuthOverridesPostgresUsername(t *testing.T) {
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-token",
 		ProjectID:           "123456",
@@ -166,9 +169,10 @@ func TestConfigureGCPOIDCAuthPostgresUsername(t *testing.T) {
 	}
 
 	// Will fail at STS, but verifies the function starts correctly
-	_, err := ConfigureGCPOIDCAuth(args, "jdbc:postgresql://localhost:5432/db")
+	overrides := make(map[string]string)
+	err := ModifyGcpOidcAuthOverrides(args, "jdbc:postgresql://localhost:5432/db", overrides)
 	if err == nil {
-		t.Error("ConfigureGCPOIDCAuth() should error with fake token")
+		t.Error("ModifyGcpOidcAuthOverrides() should error with fake token")
 	}
 }
 
