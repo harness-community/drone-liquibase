@@ -17,8 +17,26 @@ package plugin
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 )
+
+// useTestCredentialDir overrides oidcCredentialDir to a temp directory for testing.
+// Returns a restore function.
+func useTestCredentialDir(t *testing.T) func() {
+	t.Helper()
+	origDir := oidcCredentialDir
+	oidcCredentialDir = t.TempDir()
+	origCreds := os.Getenv(envGoogleApplicationCredentials)
+	return func() {
+		oidcCredentialDir = origDir
+		if origCreds != "" {
+			os.Setenv(envGoogleApplicationCredentials, origCreds)
+		} else {
+			os.Unsetenv(envGoogleApplicationCredentials)
+		}
+	}
+}
 
 func TestSetupGCPOIDCAuthNoToken(t *testing.T) {
 	args := GCPOIDCArgs{
@@ -99,14 +117,8 @@ func TestSetupGCPOIDCAuthMissingRequiredFields(t *testing.T) {
 }
 
 func TestSetupGCPOIDCAuthCredentialConfig(t *testing.T) {
-	origCreds := os.Getenv(envGoogleApplicationCredentials)
-	defer func() {
-		if origCreds != "" {
-			os.Setenv(envGoogleApplicationCredentials, origCreds)
-		} else {
-			os.Unsetenv(envGoogleApplicationCredentials)
-		}
-	}()
+	restore := useTestCredentialDir(t)
+	defer restore()
 
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-oidc-id-token",
@@ -129,12 +141,13 @@ func TestSetupGCPOIDCAuthCredentialConfig(t *testing.T) {
 	}
 
 	// Verify credential config was written
+	credFile := filepath.Join(oidcCredentialDir, "gcp-oidc-credentials.json")
 	credPath := os.Getenv(envGoogleApplicationCredentials)
-	if credPath != oidcCredentialFilePath {
-		t.Errorf("GOOGLE_APPLICATION_CREDENTIALS = %q, want %q", credPath, oidcCredentialFilePath)
+	if credPath != credFile {
+		t.Errorf("GOOGLE_APPLICATION_CREDENTIALS = %q, want %q", credPath, credFile)
 	}
 
-	configData, err := os.ReadFile(oidcCredentialFilePath)
+	configData, err := os.ReadFile(credFile)
 	if err != nil {
 		t.Fatalf("failed to read credential config: %v", err)
 	}
@@ -148,14 +161,8 @@ func TestSetupGCPOIDCAuthCredentialConfig(t *testing.T) {
 }
 
 func TestSetupGCPOIDCAuthCleanup(t *testing.T) {
-	origCreds := os.Getenv(envGoogleApplicationCredentials)
-	defer func() {
-		if origCreds != "" {
-			os.Setenv(envGoogleApplicationCredentials, origCreds)
-		} else {
-			os.Unsetenv(envGoogleApplicationCredentials)
-		}
-	}()
+	restore := useTestCredentialDir(t)
+	defer restore()
 
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-oidc-id-token",
@@ -172,10 +179,12 @@ func TestSetupGCPOIDCAuthCleanup(t *testing.T) {
 
 	cleanup()
 
-	if _, err := os.Stat(oidcTokenFilePath); !os.IsNotExist(err) {
+	tokenFile := filepath.Join(oidcCredentialDir, "oidc-token")
+	credFile := filepath.Join(oidcCredentialDir, "gcp-oidc-credentials.json")
+	if _, err := os.Stat(tokenFile); !os.IsNotExist(err) {
 		t.Error("OIDC token file should be removed after cleanup")
 	}
-	if _, err := os.Stat(oidcCredentialFilePath); !os.IsNotExist(err) {
+	if _, err := os.Stat(credFile); !os.IsNotExist(err) {
 		t.Error("credential config file should be removed after cleanup")
 	}
 	if val := os.Getenv(envGoogleApplicationCredentials); val != "" {
@@ -184,14 +193,8 @@ func TestSetupGCPOIDCAuthCleanup(t *testing.T) {
 }
 
 func TestSetupGCPOIDCAuthCloudSQLPostgresUser(t *testing.T) {
-	origCreds := os.Getenv(envGoogleApplicationCredentials)
-	defer func() {
-		if origCreds != "" {
-			os.Setenv(envGoogleApplicationCredentials, origCreds)
-		} else {
-			os.Unsetenv(envGoogleApplicationCredentials)
-		}
-	}()
+	restore := useTestCredentialDir(t)
+	defer restore()
 
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-oidc-id-token",
@@ -215,14 +218,8 @@ func TestSetupGCPOIDCAuthCloudSQLPostgresUser(t *testing.T) {
 }
 
 func TestSetupGCPOIDCAuthCloudSQLPostgresUserReplace(t *testing.T) {
-	origCreds := os.Getenv(envGoogleApplicationCredentials)
-	defer func() {
-		if origCreds != "" {
-			os.Setenv(envGoogleApplicationCredentials, origCreds)
-		} else {
-			os.Unsetenv(envGoogleApplicationCredentials)
-		}
-	}()
+	restore := useTestCredentialDir(t)
+	defer restore()
 
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-oidc-id-token",
@@ -247,14 +244,8 @@ func TestSetupGCPOIDCAuthCloudSQLPostgresUserReplace(t *testing.T) {
 }
 
 func TestSetupGCPOIDCAuthCloudSQLMySQLUser(t *testing.T) {
-	origCreds := os.Getenv(envGoogleApplicationCredentials)
-	defer func() {
-		if origCreds != "" {
-			os.Setenv(envGoogleApplicationCredentials, origCreds)
-		} else {
-			os.Unsetenv(envGoogleApplicationCredentials)
-		}
-	}()
+	restore := useTestCredentialDir(t)
+	defer restore()
 
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-oidc-id-token",
@@ -278,14 +269,8 @@ func TestSetupGCPOIDCAuthCloudSQLMySQLUser(t *testing.T) {
 }
 
 func TestSetupGCPOIDCAuthNoSocketFactory(t *testing.T) {
-	origCreds := os.Getenv(envGoogleApplicationCredentials)
-	defer func() {
-		if origCreds != "" {
-			os.Setenv(envGoogleApplicationCredentials, origCreds)
-		} else {
-			os.Unsetenv(envGoogleApplicationCredentials)
-		}
-	}()
+	restore := useTestCredentialDir(t)
+	defer restore()
 
 	args := GCPOIDCArgs{
 		OIDCIDToken:         "fake-oidc-id-token",

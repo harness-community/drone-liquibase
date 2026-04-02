@@ -18,10 +18,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 )
+
+// oidcCredentialDir is the directory for OIDC credential files.
+// Overridable in tests.
+var oidcCredentialDir = defaultOIDCCredentialDir
 
 const (
 	stsTokenURL                          = "https://sts.googleapis.com/v1/token"
@@ -32,12 +37,11 @@ const (
 	envGoogleApplicationCredentials = "GOOGLE_APPLICATION_CREDENTIALS"
 	envPluginLiquibaseURL           = "PLUGIN_LIQUIBASE_URL"
 
-	socketFactoryProperty = "socketFactory"
-	postgresURLPrefix     = "jdbc:postgresql:"
+	socketFactoryProperty   = "socketFactory"
+	postgresURLPrefix       = "jdbc:postgresql:"
 	gcpServiceAccountSuffix = ".gserviceaccount.com"
 
-	oidcTokenFilePath      = "/tmp/oidc-token"
-	oidcCredentialFilePath = "/tmp/gcp-oidc-credentials.json"
+	defaultOIDCCredentialDir = "/harness"
 
 	externalAccountType = "external_account"
 )
@@ -49,7 +53,7 @@ type externalAccountConfig struct {
 	Audience                       string           `json:"audience"`
 	SubjectTokenType               string           `json:"subject_token_type"`
 	TokenURL                       string           `json:"token_url"`
-	CredentialSource               credentialSource  `json:"credential_source"`
+	CredentialSource               credentialSource `json:"credential_source"`
 	ServiceAccountImpersonationURL string           `json:"service_account_impersonation_url"`
 }
 
@@ -77,8 +81,16 @@ func SetupGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (modifiedURL string
 
 	logrus.Info("Setting up GCP OIDC Workload Identity Federation authentication...")
 
+	tokenFile := filepath.Join(oidcCredentialDir, "oidc-token")
+	credFile := filepath.Join(oidcCredentialDir, "gcp-oidc-credentials.json")
+
+	// Ensure the directory exists (non-root containers may not have it)
+	if err := os.MkdirAll(oidcCredentialDir, 0755); err != nil {
+		return "", nil, fmt.Errorf("failed to create OIDC credential directory: %w", err)
+	}
+
 	// Write the OIDC ID token to a file for the credential source
-	if err := os.WriteFile(oidcTokenFilePath, []byte(args.OIDCIDToken), 0600); err != nil {
+	if err := os.WriteFile(tokenFile, []byte(args.OIDCIDToken), 0600); err != nil {
 		return "", nil, fmt.Errorf("failed to write OIDC token file: %w", err)
 	}
 
@@ -89,28 +101,28 @@ func SetupGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (modifiedURL string
 		SubjectTokenType: gcpTokenTypeIDToken,
 		TokenURL:         stsTokenURL,
 		CredentialSource: credentialSource{
-			File: oidcTokenFilePath,
+			File: tokenFile,
 		},
 		ServiceAccountImpersonationURL: fmt.Sprintf(gcpServiceAccountImpersonationURLFmt, args.ServiceAccountEmail),
 	}
 
 	configJSON, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		os.Remove(oidcTokenFilePath)
+		os.Remove(tokenFile)
 		return "", nil, fmt.Errorf("failed to marshal credential config: %w", err)
 	}
 
-	if err := os.WriteFile(oidcCredentialFilePath, configJSON, 0600); err != nil {
-		os.Remove(oidcTokenFilePath)
+	if err := os.WriteFile(credFile, configJSON, 0600); err != nil {
+		os.Remove(tokenFile)
 		return "", nil, fmt.Errorf("failed to write credential config file: %w", err)
 	}
 
-	os.Setenv(envGoogleApplicationCredentials, oidcCredentialFilePath)
+	os.Setenv(envGoogleApplicationCredentials, credFile)
 	logrus.Info("Configured GCP OIDC auth via GOOGLE_APPLICATION_CREDENTIALS (external account)")
 
 	cleanup = func() {
-		os.Remove(oidcTokenFilePath)
-		os.Remove(oidcCredentialFilePath)
+		os.Remove(tokenFile)
+		os.Remove(credFile)
 		os.Unsetenv(envGoogleApplicationCredentials)
 	}
 
