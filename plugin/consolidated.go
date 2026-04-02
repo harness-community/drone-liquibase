@@ -47,10 +47,7 @@ func decodeCommands(encoded string) ([]ConsolidatedCommand, error) {
 }
 
 // executeConsolidated runs multiple Liquibase commands sequentially.
-// envOverrides are env var overrides from setups like auth (e.g. GCP OIDC) that
-// take precedence over per-command args to prevent commands from clobbering
-// env vars configured by the plugin.
-func executeConsolidated(args Args, globalOptions []string, commands []ConsolidatedCommand, envOverrides map[string]string, pluginOutput *execution.Output) error {
+func executeConsolidated(args Args, globalOptions []string, commands []ConsolidatedCommand, pluginOutput *execution.Output) error {
 	logrus.Info("========================================")
 	logrus.Info("Running consolidated execution flow...")
 	logrus.Info("========================================")
@@ -68,12 +65,6 @@ func executeConsolidated(args Args, globalOptions []string, commands []Consolida
 		var setEnvVars []string
 		for key, value := range cmd.Args {
 			os.Setenv(key, value)
-			setEnvVars = append(setEnvVars, key)
-		}
-
-		// Apply env overrides on top
-		applyEnvOverrides(envOverrides)
-		for key := range envOverrides {
 			setEnvVars = append(setEnvVars, key)
 		}
 

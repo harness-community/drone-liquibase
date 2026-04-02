@@ -181,7 +181,7 @@ func TestExecuteConsolidatedEnvVarCleanup(t *testing.T) {
 	pluginOutput := execution.NewOutput()
 	args := Args{}
 
-	err := executeConsolidated(args, []string{}, commands, nil, pluginOutput)
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err != nil {
 		t.Fatalf("executeConsolidated() error = %v", err)
 	}
@@ -206,7 +206,7 @@ func TestExecuteConsolidatedSuccess(t *testing.T) {
 	pluginOutput := execution.NewOutput()
 	args := Args{}
 
-	err := executeConsolidated(args, []string{}, commands, nil, pluginOutput)
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err != nil {
 		t.Fatalf("executeConsolidated() error = %v", err)
 	}
@@ -224,7 +224,7 @@ func TestExecuteConsolidatedFailure(t *testing.T) {
 	pluginOutput := execution.NewOutput()
 	args := Args{}
 
-	err := executeConsolidated(args, []string{}, commands, nil, pluginOutput)
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err == nil {
 		t.Error("executeConsolidated() should error on command failure")
 	}
@@ -252,7 +252,7 @@ func TestExecuteConsolidatedStructFieldSync(t *testing.T) {
 
 	// SubstituteLiquibase will cause BuildArgs to fail (invalid base64+zstd),
 	// but that confirms the value was synced to the struct field
-	err := executeConsolidated(args, []string{}, commands, nil, pluginOutput)
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err == nil {
 		t.Error("executeConsolidated() should error due to invalid PLUGIN_SUBSTITUTE_LIQUIBASE")
 	}
@@ -282,7 +282,7 @@ func TestExecuteConsolidatedMultiCommandFailsOnSecond(t *testing.T) {
 	pluginOutput := execution.NewOutput()
 	args := Args{}
 
-	err := executeConsolidated(args, []string{}, commands, nil, pluginOutput)
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err == nil {
 		t.Fatal("executeConsolidated() should error on command failure")
 	}
@@ -327,7 +327,7 @@ func TestExecuteConsolidatedEnvVarIsolationBetweenCommands(t *testing.T) {
 	pluginOutput := execution.NewOutput()
 	args := Args{}
 
-	err := executeConsolidated(args, []string{}, commands, nil, pluginOutput)
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
 	if err != nil {
 		t.Fatalf("executeConsolidated() error = %v", err)
 	}
@@ -354,45 +354,6 @@ func TestExecuteConsolidatedEnvVarIsolationBetweenCommands(t *testing.T) {
 	}
 	if val := os.Getenv("PLUGIN_LIQUIBASE_USERNAME"); val != "" {
 		t.Errorf("PLUGIN_LIQUIBASE_USERNAME should be unset, got %q", val)
-	}
-}
-
-func TestAuthOverridesTakePrecedenceInConsolidatedCommands(t *testing.T) {
-	// Verify that auth overrides (e.g. from GCP OIDC) take precedence over
-	// per-command args. This prevents commands from clobbering auth-configured
-	// values like oauthToken-enriched URLs.
-
-	originalURL := "jdbc:cloudspanner:/projects/proj/instances/inst/databases/db"
-	modifiedURL := originalURL + ";oauthToken=fake-access-token"
-
-	commands := []ConsolidatedCommand{
-		{Command: "history", Args: map[string]string{envPluginLiquibaseURL: originalURL}},
-		{Command: "update", Args: map[string]string{envPluginLiquibaseURL: originalURL}},
-	}
-
-	envOverrides := map[string]string{
-		envPluginLiquibaseURL: modifiedURL,
-	}
-
-	origRunCmd := runCommandWithOutput
-	var capturedURLs []string
-	runCommandWithOutput = func(name string, args ...string) (int, []byte, error) {
-		capturedURLs = append(capturedURLs, os.Getenv(envPluginLiquibaseURL))
-		return 0, nil, nil
-	}
-	defer func() { runCommandWithOutput = origRunCmd }()
-
-	pluginOutput := execution.NewOutput()
-	args := Args{}
-	err := executeConsolidated(args, []string{}, commands, envOverrides, pluginOutput)
-	if err != nil {
-		t.Fatalf("executeConsolidated() error = %v", err)
-	}
-
-	for i, url := range capturedURLs {
-		if url != modifiedURL {
-			t.Errorf("command %d execution: PLUGIN_LIQUIBASE_URL = %q, want %q", i+1, url, modifiedURL)
-		}
 	}
 }
 
