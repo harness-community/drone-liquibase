@@ -159,13 +159,21 @@ func buildCloudSQLIAMUser(jdbcURL, serviceAccountEmail string) string {
 }
 
 // setURLProperty adds or replaces a property in a JDBC URL.
-// Handles both ? and & separators.
+// Handles both ? and & separators, matching only at parameter boundaries.
 func setURLProperty(jdbcURL, key, value string) string {
 	prop := key + "="
 
-	// If property exists, replace its value
-	if idx := strings.Index(jdbcURL, prop); idx != -1 {
-		// Find the end of the current value (next & or end of string)
+	// Search for the property at a parameter boundary (after ? or &)
+	idx := -1
+	for _, prefix := range []string{"?", "&"} {
+		if i := strings.Index(jdbcURL, prefix+prop); i != -1 {
+			idx = i + len(prefix) // point to start of "key="
+			break
+		}
+	}
+
+	if idx != -1 {
+		// Replace existing value
 		valueStart := idx + len(prop)
 		valueEnd := strings.Index(jdbcURL[valueStart:], "&")
 		if valueEnd == -1 {
