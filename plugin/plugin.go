@@ -139,9 +139,23 @@ func Exec(args Args) (mainErr error) {
 		cleanupFuncs = append(cleanupFuncs, gcpCleanup)
 	}
 
-	envOverrides := make(map[string]string)
-	if err := ModifyGcpOidcAuthOverrides(args.GCPOIDCArgs, os.Getenv(envPluginLiquibaseURL), envOverrides); err != nil {
+	// Setup GCP OIDC Workload Identity Federation authentication
+	oidcModifiedURL, oidcCleanup, err := SetupGCPOIDCAuth(args.GCPOIDCArgs, os.Getenv(envPluginLiquibaseURL))
+	if err != nil {
 		return fmt.Errorf("GCP OIDC auth setup failed: %w", err)
+	}
+	if oidcCleanup != nil {
+		cleanupFuncs = append(cleanupFuncs, oidcCleanup)
+	}
+	// If OIDC modified the JDBC URL (e.g. CloudSQL IAM user), update env var
+	// and all consolidated command args so per-command setup doesn't overwrite it.
+	if oidcModifiedURL != "" {
+		os.Setenv(envPluginLiquibaseURL, oidcModifiedURL)
+		for i := range commands {
+			if _, exists := commands[i].Args[envPluginLiquibaseURL]; exists {
+				commands[i].Args[envPluginLiquibaseURL] = oidcModifiedURL
+			}
+		}
 	}
 
 	// Set JAVA_OPTS
@@ -161,17 +175,10 @@ func Exec(args Args) (mainErr error) {
 
 	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS
 	if args.ConsolidatedCommand != "" {
-		return executeConsolidated(args, globalOptions, commands, envOverrides, pluginOutput)
+		return executeConsolidated(args, globalOptions, commands, pluginOutput)
 	}
 
-	// Single command execution flow — apply auth overrides to env vars
-	applyEnvOverrides(envOverrides)
-	// Cleanup: unset env overrides on exit
-	if len(envOverrides) > 0 {
-		cleanupFuncs = append(cleanupFuncs, func() {
-			unsetEnvOverrides(envOverrides)
-		})
-	}
+	// Single command execution flow
 	builder := NewCommandBuilder(globalOptions)
 	commandArgs, err := builder.BuildArgs(args)
 	if err != nil {

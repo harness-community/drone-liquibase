@@ -17,211 +17,175 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	stsTokenURL = "https://sts.googleapis.com/v1/token"
+// oidcCredentialDir is the directory for OIDC credential files.
+// Overridable in tests.
+var oidcCredentialDir = defaultOIDCCredentialDir
 
+const (
+	stsTokenURL                          = "https://sts.googleapis.com/v1/token"
 	gcpAudienceFormat                    = "//iam.googleapis.com/projects/%s/locations/global/workloadIdentityPools/%s/providers/%s"
-	gcpScopeURL                          = "https://www.googleapis.com/auth/cloud-platform"
-	gcpGrantTypeTokenExchange            = "urn:ietf:params:oauth:grant-type:token-exchange"
 	gcpTokenTypeIDToken                  = "urn:ietf:params:oauth:token-type:id_token"
-	gcpTokenTypeAccessToken              = "urn:ietf:params:oauth:token-type:access_token"
 	gcpServiceAccountImpersonationURLFmt = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken"
 
-	spannerURLPrefix  = "jdbc:cloudspanner:"
-	postgresURLPrefix = "jdbc:postgresql:"
-	mysqlURLPrefix    = "jdbc:mysql:"
+	envGoogleApplicationCredentials = "GOOGLE_APPLICATION_CREDENTIALS"
+	envPluginLiquibaseURL           = "PLUGIN_LIQUIBASE_URL"
 
+	socketFactoryProperty   = "socketFactory"
+	postgresURLPrefix       = "jdbc:postgresql:"
 	gcpServiceAccountSuffix = ".gserviceaccount.com"
 
-	headerAuthorization = "Authorization"
-	headerContentType   = "Content-Type"
-	contentTypeJSON     = "application/json"
-	bearerTokenFormat   = "Bearer %s"
+	defaultOIDCCredentialDir = "/harness"
 
-	stsParamGrantType          = "grant_type"
-	stsParamSubjectToken       = "subject_token"
-	stsParamAudience           = "audience"
-	stsParamScope              = "scope"
-	stsParamRequestedTokenType = "requested_token_type"
-	stsParamSubjectTokenType   = "subject_token_type"
-
-	envPluginLiquibaseURL      = "PLUGIN_LIQUIBASE_URL"
-	envPluginLiquibaseUsername = "PLUGIN_LIQUIBASE_USERNAME"
-	envPluginLiquibasePassword = "PLUGIN_LIQUIBASE_PASSWORD"
+	externalAccountType = "external_account"
 )
 
-// stsTokenResponse represents the response from the STS token exchange endpoint.
-type stsTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int    `json:"expires_in"`
+// externalAccountConfig represents the GCP external account credential configuration
+// used for Workload Identity Federation via OIDC.
+type externalAccountConfig struct {
+	Type                           string           `json:"type"`
+	Audience                       string           `json:"audience"`
+	SubjectTokenType               string           `json:"subject_token_type"`
+	TokenURL                       string           `json:"token_url"`
+	CredentialSource               credentialSource `json:"credential_source"`
+	ServiceAccountImpersonationURL string           `json:"service_account_impersonation_url"`
 }
 
-// iamAccessTokenResponse represents the response from IAM generateAccessToken.
-type iamAccessTokenResponse struct {
-	AccessToken string `json:"accessToken"`
-	ExpireTime  string `json:"expireTime"`
+type credentialSource struct {
+	File string `json:"file"`
 }
 
-// ModifyGcpOidcAuthOverrides exchanges an OIDC ID token for a GCP access token via
-// Workload Identity Federation, then populates envOverrides with Liquibase
-// credential env vars based on the target database type:
-//   - Spanner: sets PLUGIN_LIQUIBASE_URL with ;oauthToken=<token> appended
-//   - CloudSQL PostgreSQL: sets username (email without .gserviceaccount.com) + password
-//   - CloudSQL MySQL: sets username (full service account email) + password
-func ModifyGcpOidcAuthOverrides(args GCPOIDCArgs, liquibaseURL string, envOverrides map[string]string) error {
+// SetupGCPOIDCAuth configures GCP OIDC Workload Identity Federation by writing
+// an external account credential config file and setting GOOGLE_APPLICATION_CREDENTIALS.
+// The GCP-aware JDBC drivers (Spanner, CloudSQL Socket Factory) handle token
+// exchange and authentication automatically via Application Default Credentials (ADC).
+//
+// For CloudSQL URLs with socketFactory, it also sets the IAM-appropriate user
+// property in the JDBC URL and returns the modified URL.
+//
+// Returns the modified JDBC URL (empty if unchanged) and a cleanup function.
+func SetupGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (modifiedURL string, cleanup func(), err error) {
 	if args.OIDCIDToken == "" {
-		return nil
+		return "", nil, nil
 	}
 
 	if args.ProjectID == "" || args.WorkloadPoolID == "" || args.ProviderID == "" || args.ServiceAccountEmail == "" {
-		return fmt.Errorf("GCP OIDC auth requires project_id, workload_pool_id, provider_id, and service_account_email")
+		return "", nil, fmt.Errorf("GCP OIDC auth requires project_id, workload_pool_id, provider_id, and service_account_email")
 	}
 
 	logrus.Info("Setting up GCP OIDC Workload Identity Federation authentication...")
 
-	// Step 1: Exchange OIDC ID token for a federated (STS) token
-	federatedToken, err := getFederatedToken(args)
+	tokenFile := filepath.Join(oidcCredentialDir, "oidc-token")
+	credFile := filepath.Join(oidcCredentialDir, "gcp-oidc-credentials.json")
+
+	// Ensure the directory exists (non-root containers may not have it)
+	if err := os.MkdirAll(oidcCredentialDir, 0755); err != nil {
+		return "", nil, fmt.Errorf("failed to create OIDC credential directory: %w", err)
+	}
+
+	// Write the OIDC ID token to a file for the credential source
+	if err := os.WriteFile(tokenFile, []byte(args.OIDCIDToken), 0600); err != nil {
+		return "", nil, fmt.Errorf("failed to write OIDC token file: %w", err)
+	}
+
+	// Build external account credential config
+	config := externalAccountConfig{
+		Type:             externalAccountType,
+		Audience:         fmt.Sprintf(gcpAudienceFormat, args.ProjectID, args.WorkloadPoolID, args.ProviderID),
+		SubjectTokenType: gcpTokenTypeIDToken,
+		TokenURL:         stsTokenURL,
+		CredentialSource: credentialSource{
+			File: tokenFile,
+		},
+		ServiceAccountImpersonationURL: fmt.Sprintf(gcpServiceAccountImpersonationURLFmt, args.ServiceAccountEmail),
+	}
+
+	configJSON, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to get federated token: %w", err)
-	}
-	logrus.Info("Successfully obtained federated token via STS token exchange")
-
-	// Step 2: Exchange federated token for a GCP access token via service account impersonation
-	accessToken, err := getGCPAccessToken(federatedToken, args.ServiceAccountEmail)
-	if err != nil {
-		return fmt.Errorf("failed to get GCP access token: %w", err)
-	}
-	logrus.Info("Successfully obtained GCP access token via service account impersonation")
-
-	// Step 3: Populate auth overrides based on database type
-	if isSpannerURL(liquibaseURL) {
-		// Spanner does not support username/password.
-		// Pass the access token via the oauthToken URL property.
-		cleanURL := strings.TrimRight(liquibaseURL, ";?")
-		envOverrides[envPluginLiquibaseURL] = cleanURL + ";oauthToken=" + url.QueryEscape(accessToken)
-		logrus.Info("Configured Spanner OIDC auth via oauthToken URL property")
-	} else if isPostgresURL(liquibaseURL) {
-		// CloudSQL PostgreSQL: username is email without .gserviceaccount.com
-		username := strings.Replace(args.ServiceAccountEmail, gcpServiceAccountSuffix, "", 1)
-		envOverrides[envPluginLiquibaseUsername] = username
-		envOverrides[envPluginLiquibasePassword] = accessToken
-		logrus.Infof("Configured CloudSQL PostgreSQL OIDC auth with username: %s", username)
-	} else if isMySQLURL(liquibaseURL) {
-		// CloudSQL MySQL: username is the full service account email
-		envOverrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
-		envOverrides[envPluginLiquibasePassword] = accessToken
-		logrus.Infof("Configured CloudSQL MySQL OIDC auth with username: %s", args.ServiceAccountEmail)
-	} else {
-		// Unknown database type: use full service account email as username
-		envOverrides[envPluginLiquibaseUsername] = args.ServiceAccountEmail
-		envOverrides[envPluginLiquibasePassword] = accessToken
-		logrus.Warnf("Unknown JDBC URL type, using full service account email as username: %s", args.ServiceAccountEmail)
+		os.Remove(tokenFile)
+		return "", nil, fmt.Errorf("failed to marshal credential config: %w", err)
 	}
 
-	return nil
+	if err := os.WriteFile(credFile, configJSON, 0600); err != nil {
+		os.Remove(tokenFile)
+		return "", nil, fmt.Errorf("failed to write credential config file: %w", err)
+	}
+
+	os.Setenv(envGoogleApplicationCredentials, credFile)
+	logrus.Info("Configured GCP OIDC auth via GOOGLE_APPLICATION_CREDENTIALS (external account)")
+
+	cleanup = func() {
+		os.Remove(tokenFile)
+		os.Remove(credFile)
+		os.Unsetenv(envGoogleApplicationCredentials)
+	}
+
+	// For CloudSQL URLs with socketFactory, set the IAM-appropriate user property
+	if isCloudSQLSocketFactoryURL(liquibaseURL) {
+		iamUser := buildCloudSQLIAMUser(liquibaseURL, args.ServiceAccountEmail)
+		modifiedURL = setURLProperty(liquibaseURL, "user", iamUser)
+		logrus.Infof("Configured CloudSQL IAM user in JDBC URL: %s", iamUser)
+	}
+
+	return modifiedURL, cleanup, nil
 }
 
-// isSpannerURL checks if the JDBC URL targets Cloud Spanner.
-func isSpannerURL(jdbcURL string) bool {
-	return strings.HasPrefix(strings.ToLower(jdbcURL), spannerURLPrefix)
+// isCloudSQLSocketFactoryURL checks if the JDBC URL uses Cloud SQL Socket Factory.
+func isCloudSQLSocketFactoryURL(jdbcURL string) bool {
+	return strings.Contains(jdbcURL, socketFactoryProperty+"=")
 }
 
-// isPostgresURL checks if the JDBC URL targets PostgreSQL.
-func isPostgresURL(jdbcURL string) bool {
-	return strings.HasPrefix(strings.ToLower(jdbcURL), postgresURLPrefix)
+// buildCloudSQLIAMUser derives the IAM database username from the service account email
+// based on the database type:
+//   - PostgreSQL: sa-name@project-id.iam (strips .gserviceaccount.com)
+//   - Default (MySQL and others): sa-name (part before @)
+func buildCloudSQLIAMUser(jdbcURL, serviceAccountEmail string) string {
+	lowerURL := strings.ToLower(jdbcURL)
+	if strings.HasPrefix(lowerURL, postgresURLPrefix) {
+		// PostgreSQL: strip .gserviceaccount.com
+		return strings.TrimSuffix(serviceAccountEmail, gcpServiceAccountSuffix)
+	}
+	// Default (MySQL and others): use only the service account name (before @)
+	if idx := strings.Index(serviceAccountEmail, "@"); idx != -1 {
+		return serviceAccountEmail[:idx]
+	}
+	return serviceAccountEmail
 }
 
-// isMySQLURL checks if the JDBC URL targets MySQL.
-func isMySQLURL(jdbcURL string) bool {
-	return strings.HasPrefix(strings.ToLower(jdbcURL), mysqlURLPrefix)
-}
+// setURLProperty adds or replaces a property in a JDBC URL.
+// Handles both ? and & separators, matching only at parameter boundaries.
+func setURLProperty(jdbcURL, key, value string) string {
+	prop := key + "="
 
-// getFederatedToken exchanges an OIDC ID token for a federated token using the GCP STS endpoint.
-func getFederatedToken(args GCPOIDCArgs) (string, error) {
-	audience := fmt.Sprintf(gcpAudienceFormat, args.ProjectID, args.WorkloadPoolID, args.ProviderID)
-
-	data := url.Values{
-		stsParamGrantType:          {gcpGrantTypeTokenExchange},
-		stsParamSubjectToken:       {args.OIDCIDToken},
-		stsParamAudience:           {audience},
-		stsParamScope:              {gcpScopeURL},
-		stsParamRequestedTokenType: {gcpTokenTypeAccessToken},
-		stsParamSubjectTokenType:   {gcpTokenTypeIDToken},
+	// Search for the property at a parameter boundary (after ? or &)
+	idx := -1
+	for _, prefix := range []string{"?", "&"} {
+		if i := strings.Index(jdbcURL, prefix+prop); i != -1 {
+			idx = i + len(prefix) // point to start of "key="
+			break
+		}
 	}
 
-	resp, err := http.PostForm(stsTokenURL, data)
-	if err != nil {
-		return "", fmt.Errorf("STS token exchange request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read STS response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("STS token exchange failed with status %d: %s", resp.StatusCode, string(body))
+	if idx != -1 {
+		// Replace existing value
+		valueStart := idx + len(prop)
+		valueEnd := strings.Index(jdbcURL[valueStart:], "&")
+		if valueEnd == -1 {
+			return jdbcURL[:valueStart] + value
+		}
+		return jdbcURL[:valueStart] + value + jdbcURL[valueStart+valueEnd:]
 	}
 
-	var tokenResp stsTokenResponse
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return "", fmt.Errorf("failed to parse STS token response: %w", err)
+	// Append new property
+	separator := "&"
+	if !strings.Contains(jdbcURL, "?") {
+		separator = "?"
 	}
-
-	if tokenResp.AccessToken == "" {
-		return "", fmt.Errorf("STS token exchange returned empty access token")
-	}
-
-	return tokenResp.AccessToken, nil
-}
-
-// getGCPAccessToken exchanges a federated token for a GCP access token by
-// impersonating the specified service account.
-func getGCPAccessToken(federatedToken, serviceAccountEmail string) (string, error) {
-	impersonateURL := fmt.Sprintf(gcpServiceAccountImpersonationURLFmt, serviceAccountEmail)
-
-	reqBody := fmt.Sprintf(`{"scope":["%s"]}`, gcpScopeURL)
-	req, err := http.NewRequest(http.MethodPost, impersonateURL, strings.NewReader(reqBody))
-	if err != nil {
-		return "", fmt.Errorf("failed to create impersonation request: %w", err)
-	}
-
-	req.Header.Set(headerAuthorization, fmt.Sprintf(bearerTokenFormat, federatedToken))
-	req.Header.Set(headerContentType, contentTypeJSON)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("service account impersonation request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read impersonation response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("service account impersonation failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp iamAccessTokenResponse
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return "", fmt.Errorf("failed to parse impersonation response: %w", err)
-	}
-
-	if tokenResp.AccessToken == "" {
-		return "", fmt.Errorf("service account impersonation returned empty access token")
-	}
-
-	return tokenResp.AccessToken, nil
+	return jdbcURL + separator + key + "=" + value
 }
