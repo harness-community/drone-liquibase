@@ -1,0 +1,65 @@
+# Build Go plugin binary - use BUILDPLATFORM to run Go natively, cross-compile to target
+ARG GO_VERSION=1.25.7
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS go-builder
+ARG TARGETOS=linux
+ARG TARGETARCH=arm64
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /plugin
+
+# Use Debian-based builder for downloading jars
+FROM debian:12.13-slim AS downloader
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/download-common.sh /scripts/download-common.sh
+COPY scripts/download-bigquery.sh /scripts/download-bigquery.sh
+RUN chmod +x /scripts/download-common.sh /scripts/download-bigquery.sh \
+ && /scripts/download-common.sh \
+ && /scripts/download-bigquery.sh
+
+# Clean liquibase bits in a throwaway builder so removed jars never land in the final image
+FROM liquibase/liquibase:4.33 AS liquibase-builder
+USER 0
+RUN rm -f /liquibase/internal/extensions/liquibase-checks.jar \
+    && rm -f /liquibase/internal/extensions/liquibase-commercial-bigquery.jar \
+    && rm -f /liquibase/internal/lib/liquibase-commercial.jar \
+    && rm -f /liquibase/internal/lib/snowflake-jdbc.jar \
+    && rm -f /liquibase/internal/lib/mssql-jdbc*.jar \
+    && rm -f /liquibase/internal/lib/jcc*.jar \
+    && rm -f /liquibase/bin/lpm
+
+# Fresh final image - use glibc-based image for BigQuery gRPC native library compatibility
+FROM eclipse-temurin:21.0.10_7-jre-jammy
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    bash \
+    openssl \
+    jq \
+    zstd \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/liquibase:${PATH}"
+WORKDIR /liquibase
+
+# Copy cleaned liquibase and place launchers alongside lib/internal
+COPY --from=liquibase-builder /liquibase /liquibase
+COPY --from=liquibase-builder /usr/local/bin/liquibase /liquibase/liquibase
+
+ADD resources /resources
+
+# Copy BigQuery and common jars from downloader
+COPY --from=downloader /liquibase/lib /liquibase/lib
+
+COPY NOTICE /liquibase/NOTICE
+
+# Copy Go plugin binary
+COPY --from=go-builder /plugin /bin/plugin
+
+ENTRYPOINT ["/bin/plugin"]

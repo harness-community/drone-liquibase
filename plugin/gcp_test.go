@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -181,15 +182,21 @@ func TestSetupGCPOIDCAuthCredentialConfig(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		url         string
-		wantURLMod  bool
-		wantURL     string
+		name       string
+		url        string
+		wantURLMod bool
+		wantURL    string
 	}{
 		{
 			name:       "spanner URL - credential config only, no URL modification",
 			url:        "jdbc:cloudspanner:/projects/my-project/instances/my-instance/databases/my-db",
 			wantURLMod: false,
+		},
+		{
+			name:       "bigquery URL - OAuthType=3 appended for ADC",
+			url:        "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops",
+			wantURLMod: true,
+			wantURL:    "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops;OAuthType=3",
 		},
 		{
 			name:       "empty URL - credential config only",
@@ -379,6 +386,228 @@ func TestSetupGCPOIDCAuthNoSocketFactory(t *testing.T) {
 	}
 }
 
+func TestSetupGCPOIDCAuthBigQueryOAuthType(t *testing.T) {
+	restore := useTestCredentialDir(t)
+	defer restore()
+
+	args := GCPOIDCArgs{
+		OIDCIDToken:         "fake-oidc-id-token",
+		ProjectID:           "123456",
+		WorkloadPoolID:      "my-pool",
+		ProviderID:          "my-provider",
+		ServiceAccountEmail: "my-sa@project-id.iam.gserviceaccount.com",
+	}
+
+	bqURL := "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops"
+	modifiedURL, cleanup, err := SetupGCPOIDCAuth(args, bqURL)
+	if err != nil {
+		t.Fatalf("SetupGCPOIDCAuth() error = %v", err)
+	}
+	defer cleanup()
+
+	wantURL := bqURL + ";OAuthType=3"
+	if modifiedURL != wantURL {
+		t.Errorf("modifiedURL = %q, want %q", modifiedURL, wantURL)
+	}
+
+	verifyCredentialFiles(t, args)
+}
+
+func TestSetupGCPOIDCAuthBigQueryOAuthTypeReplace(t *testing.T) {
+	restore := useTestCredentialDir(t)
+	defer restore()
+
+	args := GCPOIDCArgs{
+		OIDCIDToken:         "fake-oidc-id-token",
+		ProjectID:           "123456",
+		WorkloadPoolID:      "my-pool",
+		ProviderID:          "my-provider",
+		ServiceAccountEmail: "my-sa@project-id.iam.gserviceaccount.com",
+	}
+
+	// URL already has OAuthType=0, should be replaced with 3
+	bqURL := "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops;OAuthType=0"
+	modifiedURL, cleanup, err := SetupGCPOIDCAuth(args, bqURL)
+	if err != nil {
+		t.Fatalf("SetupGCPOIDCAuth() error = %v", err)
+	}
+	defer cleanup()
+
+	wantURL := "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops;OAuthType=3"
+	if modifiedURL != wantURL {
+		t.Errorf("modifiedURL = %q, want %q", modifiedURL, wantURL)
+	}
+}
+
+func TestIsBigQueryURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops", true},
+		{"JDBC:BIGQUERY://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops", true},
+		{"jdbc:bigquery://https://googleapis.com/bigquery/v2:443", true},
+		{"jdbc:postgresql://1.2.3.4:5432/db", false},
+		{"jdbc:cloudspanner:/projects/proj/instances/inst/databases/db", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			if got := isBigQueryURL(tt.url); got != tt.want {
+				t.Errorf("isBigQueryURL(%q) = %v, want %v", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetPropertyInURL(t *testing.T) {
+	tests := []struct {
+		name              string
+		url               string
+		key               string
+		value             string
+		boundaryPrefixes  []string
+		valueSeparator    string
+		appendSeparatorFn func(string) string
+		want              string
+	}{
+		{
+			name:              "semicolon: append to bigquery URL",
+			url:               "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops",
+			key:               "OAuthType",
+			value:             "3",
+			boundaryPrefixes:  []string{";"},
+			valueSeparator:    ";",
+			appendSeparatorFn: func(string) string { return ";" },
+			want:              "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops;OAuthType=3",
+		},
+		{
+			name:              "semicolon: replace existing in bigquery URL",
+			url:               "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops;OAuthType=0",
+			key:               "OAuthType",
+			value:             "3",
+			boundaryPrefixes:  []string{";"},
+			valueSeparator:    ";",
+			appendSeparatorFn: func(string) string { return ";" },
+			want:              "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=cd-dbops;OAuthType=3",
+		},
+		{
+			name:              "semicolon: replace middle property in bigquery URL",
+			url:               "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;OAuthType=0;ProjectId=cd-dbops;Timeout=300",
+			key:               "OAuthType",
+			value:             "3",
+			boundaryPrefixes:  []string{";"},
+			valueSeparator:    ";",
+			appendSeparatorFn: func(string) string { return ";" },
+			want:              "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;OAuthType=3;ProjectId=cd-dbops;Timeout=300",
+		},
+		{
+			name:              "semicolon: does not match partial key",
+			url:               "jdbc:bigquery://host;MyOAuthType=0",
+			key:               "OAuthType",
+			value:             "3",
+			boundaryPrefixes:  []string{";"},
+			valueSeparator:    ";",
+			appendSeparatorFn: func(string) string { return ";" },
+			want:              "jdbc:bigquery://host;MyOAuthType=0;OAuthType=3",
+		},
+		{
+			name:              "semicolon: append to URL without any properties",
+			url:               "jdbc:bigquery://https://googleapis.com/bigquery/v2:443",
+			key:               "ProjectId",
+			value:             "my-project",
+			boundaryPrefixes:  []string{";"},
+			valueSeparator:    ";",
+			appendSeparatorFn: func(string) string { return ";" },
+			want:              "jdbc:bigquery://https://googleapis.com/bigquery/v2:443;ProjectId=my-project",
+		},
+		{
+			name:             "query param: append to postgresql URL with existing params",
+			url:              "jdbc:postgresql:///mydb?cloudSqlInstance=proj:us-central1:inst&socketFactory=com.google.cloud.sql.postgres.SocketFactory",
+			key:              "user",
+			value:            "sa@proj.iam",
+			boundaryPrefixes: []string{"?", "&"},
+			valueSeparator:   "&",
+			appendSeparatorFn: func(url string) string {
+				if !strings.Contains(url, "?") {
+					return "?"
+				}
+				return "&"
+			},
+			want: "jdbc:postgresql:///mydb?cloudSqlInstance=proj:us-central1:inst&socketFactory=com.google.cloud.sql.postgres.SocketFactory&user=sa@proj.iam",
+		},
+		{
+			name:             "query param: append to postgresql URL without params",
+			url:              "jdbc:postgresql://10.0.0.1:5432/mydb",
+			key:              "sslmode",
+			value:            "require",
+			boundaryPrefixes: []string{"?", "&"},
+			valueSeparator:   "&",
+			appendSeparatorFn: func(url string) string {
+				if !strings.Contains(url, "?") {
+					return "?"
+				}
+				return "&"
+			},
+			want: "jdbc:postgresql://10.0.0.1:5432/mydb?sslmode=require",
+		},
+		{
+			name:             "query param: replace existing in mysql URL",
+			url:              "jdbc:mysql:///mydb?cloudSqlInstance=proj:us-central1:inst&socketFactory=com.google.cloud.sql.mysql.SocketFactory&user=old",
+			key:              "user",
+			value:            "new-sa",
+			boundaryPrefixes: []string{"?", "&"},
+			valueSeparator:   "&",
+			appendSeparatorFn: func(url string) string {
+				if !strings.Contains(url, "?") {
+					return "?"
+				}
+				return "&"
+			},
+			want: "jdbc:mysql:///mydb?cloudSqlInstance=proj:us-central1:inst&socketFactory=com.google.cloud.sql.mysql.SocketFactory&user=new-sa",
+		},
+		{
+			name:             "query param: replace first param in postgresql URL",
+			url:              "jdbc:postgresql:///mydb?user=old&socketFactory=com.google.cloud.sql.postgres.SocketFactory",
+			key:              "user",
+			value:            "sa@proj.iam",
+			boundaryPrefixes: []string{"?", "&"},
+			valueSeparator:   "&",
+			appendSeparatorFn: func(url string) string {
+				if !strings.Contains(url, "?") {
+					return "?"
+				}
+				return "&"
+			},
+			want: "jdbc:postgresql:///mydb?user=sa@proj.iam&socketFactory=com.google.cloud.sql.postgres.SocketFactory",
+		},
+		{
+			name:             "query param: does not match partial key",
+			url:              "jdbc:postgresql:///mydb?username=admin",
+			key:              "user",
+			value:            "sa@proj.iam",
+			boundaryPrefixes: []string{"?", "&"},
+			valueSeparator:   "&",
+			appendSeparatorFn: func(url string) string {
+				if !strings.Contains(url, "?") {
+					return "?"
+				}
+				return "&"
+			},
+			want: "jdbc:postgresql:///mydb?username=admin&user=sa@proj.iam",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := setPropertyInURL(tt.url, tt.key, tt.value, tt.boundaryPrefixes, tt.valueSeparator, tt.appendSeparatorFn); got != tt.want {
+				t.Errorf("setPropertyInURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsCloudSQLSocketFactoryURL(t *testing.T) {
 	tests := []struct {
 		url  string
@@ -458,81 +687,6 @@ func TestBuildCloudSQLIAMUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := buildCloudSQLIAMUser(tt.url, tt.email); got != tt.want {
 				t.Errorf("buildCloudSQLIAMUser() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSetURLProperty(t *testing.T) {
-	tests := []struct {
-		name  string
-		url   string
-		key   string
-		value string
-		want  string
-	}{
-		{
-			name:  "append with existing params",
-			url:   "jdbc:postgresql:///db?foo=bar",
-			key:   "user",
-			value: "sa@proj.iam",
-			want:  "jdbc:postgresql:///db?foo=bar&user=sa@proj.iam",
-		},
-		{
-			name:  "append without params",
-			url:   "jdbc:postgresql:///db",
-			key:   "user",
-			value: "sa@proj.iam",
-			want:  "jdbc:postgresql:///db?user=sa@proj.iam",
-		},
-		{
-			name:  "replace existing value",
-			url:   "jdbc:postgresql:///db?user=old&foo=bar",
-			key:   "user",
-			value: "new",
-			want:  "jdbc:postgresql:///db?user=new&foo=bar",
-		},
-		{
-			name:  "replace last param",
-			url:   "jdbc:postgresql:///db?foo=bar&user=old",
-			key:   "user",
-			value: "new",
-			want:  "jdbc:postgresql:///db?foo=bar&user=new",
-		},
-		{
-			name:  "replace first param",
-			url:   "jdbc:postgresql:///db?user=old&foo=bar",
-			key:   "user",
-			value: "new",
-			want:  "jdbc:postgresql:///db?user=new&foo=bar",
-		},
-		{
-			name:  "does not match different property name",
-			url:   "jdbc:postgresql:///db?username=admin",
-			key:   "user",
-			value: "sa@proj.iam",
-			want:  "jdbc:postgresql:///db?username=admin&user=sa@proj.iam",
-		},
-		{
-			name:  "matches substring in property name",
-			url:   "jdbc:postgresql:///db?foouser=bar",
-			key:   "user",
-			value: "sa@proj.iam",
-			want:  "jdbc:postgresql:///db?foouser=bar&user=sa@proj.iam",
-		},
-		{
-			name:  "replace only param",
-			url:   "jdbc:postgresql:///db?user=old",
-			key:   "user",
-			value: "new",
-			want:  "jdbc:postgresql:///db?user=new",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := setURLProperty(tt.url, tt.key, tt.value); got != tt.want {
-				t.Errorf("setURLProperty() = %q, want %q", got, tt.want)
 			}
 		})
 	}
