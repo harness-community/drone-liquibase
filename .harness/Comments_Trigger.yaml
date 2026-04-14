@@ -1,0 +1,24 @@
+inputSet:
+  name: Comment Trigger
+  identifier: Comment_Trigger
+  orgIdentifier: default
+  projectIdentifier: CD
+  pipeline:
+    identifier: liquibaseDronePrBuild
+    variables:
+      - name: TITLE
+        type: String
+        value: <+trigger.payload.pull_req.title>
+      - name: COMMENT
+        type: String
+        value: <+trigger.payload.comment.text>
+      - name: PR_NUMBER
+        type: String
+        value: <+trigger.prNumber>
+    properties:
+      ci:
+        codebase:
+          build:
+            type: PR
+            spec:
+              number: <+trigger.prNumber>

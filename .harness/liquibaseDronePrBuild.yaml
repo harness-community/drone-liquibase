@@ -1,0 +1,247 @@
+pipeline:
+  name: liquibaseDronePrBuild
+  identifier: liquibaseDronePrBuild
+  projectIdentifier: CD
+  orgIdentifier: default
+  description: "PR check pipeline for Liquibase Drone Plugin"
+  tags:
+    Owner: DBOPS
+  stages:
+    - parallel:
+        - stage:
+            name: Tests
+            identifier: Tests
+            type: CI
+            spec:
+              cloneCodebase: true
+              execution:
+                steps:
+                  - step:
+                      type: Run
+                      name: Build AND Test
+                      identifier: go_build
+                      spec:
+                        connectorRef: org.dockerhub_harness_jenkins
+                        image: golang:1.25
+                        shell: Sh
+                        command: |-
+                          go env -w GOPRIVATE=github.com/harness/*,git0.harness.io
+
+                          git config --global url."https://${GITHUB_ACCESS_TOKEN}:x-oauth-basic@github.com/harness".insteadOf "https://github.com/harness"
+                          echo "machine git0.harness.io login git password ${HC_TOKEN}" >> ~/.netrc
+
+                          CGO_ENABLED=0 go build -o /dev/null .
+
+                          go install gotest.tools/gotestsum@latest
+                          gotestsum --format testname --junitfile unit-tests.xml -- -v ./...
+                        reports:
+                          type: JUnit
+                          spec:
+                            paths:
+                              - unit-tests.xml
+                        imagePullPolicy: IfNotPresent
+                      timeout: 10m
+              platform:
+                os: Linux
+                arch: Amd64
+              runtime:
+                type: Cloud
+                spec: {}
+              caching:
+                enabled: true
+                paths: []
+            description: ""
+            variables:
+              - name: GITHUB_ACCESS_TOKEN
+                type: Secret
+                description: Token for github.com/harness
+                required: false
+                value: githubbotharnesstoken
+              - name: HC_TOKEN
+                type: Secret
+                description: ""
+                required: false
+                value: account.bot_harness_account_token
+            when:
+              pipelineStatus: Success
+              condition: <+pipeline.variables.COMMENT> =~ "trigger .*tests.*" || <+pipeline.variables.COMMENT> == "<+input>"
+        - stage:
+            name: Lint
+            identifier: lint
+            type: CI
+            spec:
+              cloneCodebase: true
+              execution:
+                steps:
+                  - step:
+                      type: Run
+                      name: Lint
+                      identifier: Lint
+                      spec:
+                        connectorRef: org.dockerhub_harness_jenkins
+                        image: golang:1.25
+                        shell: Sh
+                        command: |-
+                          go env -w GOPRIVATE=github.com/harness/*,git0.harness.io
+
+                          git config --global url."https://${GITHUB_ACCESS_TOKEN}:x-oauth-basic@github.com/harness".insteadOf "https://github.com/harness"
+                          echo "machine git0.harness.io login git password ${HC_TOKEN}" >> ~/.netrc
+
+                          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+                          golangci-lint run
+                        envVariables:
+                          GO111MODULE: "on"
+                      description: Run Golangci-lint
+                      when:
+                        stageStatus: Success
+              platform:
+                os: Linux
+                arch: Amd64
+              runtime:
+                type: Cloud
+                spec: {}
+              caching:
+                enabled: true
+                paths: []
+            description: ""
+            variables:
+              - name: GITHUB_ACCESS_TOKEN
+                type: Secret
+                description: Token for github.com/harness
+                required: false
+                value: githubbotharnesstoken
+              - name: HC_TOKEN
+                type: Secret
+                description: ""
+                required: false
+                value: account.bot_harness_account_token
+            when:
+              pipelineStatus: Success
+              condition: <+pipeline.variables.COMMENT> =~ "trigger .*lint.*" || <+pipeline.variables.COMMENT> == "<+input>"
+        - stage:
+            name: Message check
+            identifier: msgcheck
+            type: CI
+            spec:
+              cloneCodebase: false
+              execution:
+                steps:
+                  - step:
+                      type: Run
+                      name: Message Check
+                      identifier: Message_Check
+                      spec:
+                        shell: Sh
+                        command: |-
+                          set +e
+
+                          COMMIT_CONTENT="\[feat]|\[fix]|\[techdebt]|\[chore]|feat|fix|techdebt|chore"
+                          PROJECTS="DBOPS"
+
+                          PR_MESSAGE=`echo "${pull_request_title}" | grep -iE "^(${COMMIT_CONTENT}): \[(${PROJECTS})-[0-9]+]: "`
+
+                          if [ -z "$PR_MESSAGE" ]
+                          then
+                              echo The PR title \"${pull_request_title}\"
+                              echo "does not match the expectations"
+                              echo "Make sure that your commit message is in format -> ${COMMIT_CONTENT}: [${PROJECTS}-<number>]: <description>"
+                              echo "Example -> \"[feat]: [DBOPS-123]: Commit Message\""
+                              exit 1
+                          fi
+
+                          KEY=`echo "${pull_request_title}" | grep -o -iqE "(${PROJECTS})-[0-9]+"`
+                        envVariables:
+                          pull_request_title: <+pipeline.variables.TITLE>
+                      description: Check if Pull Request Message is of the correct format
+              platform:
+                os: Linux
+                arch: Amd64
+              runtime:
+                type: Cloud
+                spec: {}
+              caching:
+                enabled: false
+                paths: []
+            description: ""
+            when:
+              pipelineStatus: Success
+              condition: <+pipeline.variables.COMMENT> =~ "trigger .*messagecheck.*" || <+pipeline.variables.COMMENT> == "<+input>"
+        - stage:
+            name: autoPrReview-aiPrReview
+            identifier: autoPrReview_aiPrReview
+            type: CI
+            spec:
+              cloneCodebase: true
+              execution:
+                steps:
+                  - step:
+                      type: AIPRReview
+                      name: AI PR Review
+                      identifier: AI_PR_Review
+                      spec: {}
+              platform:
+                os: Linux
+                arch: Amd64
+              runtime:
+                type: Cloud
+                spec: {}
+              caching:
+                enabled: false
+                paths: []
+            description: "AI-powered PR review for code quality, security, and best practices"
+            when:
+              pipelineStatus: Success
+        - stage:
+            name: centralisedGoCheckDynamic-Build
+            identifier: centralisedGoCheckDynamic_Build
+            type: Pipeline
+            spec:
+              org: PROD
+              pipeline: centralisedGoCheckDynamic
+              project: Harness_Commons
+              inputs:
+                identifier: centralisedGoCheckDynamic
+                stages:
+                  - stage:
+                      identifier: Build
+                      type: CI
+                      variables:
+                        - name: GO_VERSION
+                          type: String
+                          value: "1.25"
+                        - name: REPO_NAME
+                          type: String
+                          value: liquibase-drone-plugin
+              outputs: []
+            description: "Centralised Go build check using shared pipeline template"
+            when:
+              pipelineStatus: Success
+              condition: <+pipeline.variables.COMMENT> =~ "trigger .*build.*" || <+pipeline.variables.COMMENT> == "<+input>"
+  variables:
+    - name: TITLE
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(<+trigger.payload.pull_req.title>)
+    - name: COMMENT
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(<+trigger.payload.comment.text>)
+    - name: PR_NUMBER
+      type: String
+      description: ""
+      required: false
+      value: <+input>.default(<+trigger.payload.pull_req.number>)
+    - name: HC_TOKEN
+      type: Secret
+      description: ""
+      required: false
+      value: account.bot_harness_account_token
+  properties:
+    ci:
+      codebase:
+        repoName: liquibase-drone-plugin
+        build: <+input>
+        prCloneStrategy: SourceBranch
+  allowStageExecutions: true
