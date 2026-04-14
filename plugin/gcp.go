@@ -39,6 +39,8 @@ const (
 
 	socketFactoryProperty   = "socketFactory"
 	postgresURLPrefix       = "jdbc:postgresql:"
+	bigqueryURLPrefix       = "jdbc:bigquery:"
+	bigqueryOAuthTypeADC    = "3"
 	gcpServiceAccountSuffix = ".gserviceaccount.com"
 
 	defaultOIDCCredentialDir = "/harness"
@@ -63,11 +65,13 @@ type credentialSource struct {
 
 // SetupGCPOIDCAuth configures GCP OIDC Workload Identity Federation by writing
 // an external account credential config file and setting GOOGLE_APPLICATION_CREDENTIALS.
-// The GCP-aware JDBC drivers (Spanner, CloudSQL Socket Factory) handle token
+// The GCP-aware JDBC drivers (Spanner, CloudSQL Socket Factory, BigQuery) handle token
 // exchange and authentication automatically via Application Default Credentials (ADC).
 //
-// For CloudSQL URLs with socketFactory, it also sets the IAM-appropriate user
-// property in the JDBC URL and returns the modified URL.
+// URL modifications by database type:
+//   - CloudSQL (socketFactory): sets IAM-appropriate "user" property
+//   - BigQuery: sets "OAuthType=3" to enable ADC authentication
+//   - Spanner and others: no URL modification (ADC via env var is sufficient)
 //
 // Returns the modified JDBC URL (empty if unchanged) and a cleanup function.
 func SetupGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (modifiedURL string, cleanup func(), err error) {
@@ -133,6 +137,11 @@ func SetupGCPOIDCAuth(args GCPOIDCArgs, liquibaseURL string) (modifiedURL string
 		logrus.Infof("Configured CloudSQL IAM user in JDBC URL: %s", iamUser)
 	}
 
+	// For BigQuery URLs, set OAuthType=3 so the driver uses ADC
+	if isBigQueryURL(liquibaseURL) {
+		modifiedURL = setSemicolonURLProperty(liquibaseURL, "OAuthType", bigqueryOAuthTypeADC)
+	}
+
 	return modifiedURL, cleanup, nil
 }
 
@@ -158,34 +167,51 @@ func buildCloudSQLIAMUser(jdbcURL, serviceAccountEmail string) string {
 	return serviceAccountEmail
 }
 
-// setURLProperty adds or replaces a property in a JDBC URL.
-// Handles both ? and & separators, matching only at parameter boundaries.
-func setURLProperty(jdbcURL, key, value string) string {
+// isBigQueryURL checks if the JDBC URL targets BigQuery.
+func isBigQueryURL(jdbcURL string) bool {
+	return strings.HasPrefix(strings.ToLower(jdbcURL), bigqueryURLPrefix)
+}
+
+// setPropertyInURL adds or replaces a property in a URL string.
+// boundaryPrefixes are the characters that precede a property at a valid boundary (e.g. ";" or "?", "&").
+// valueSeparator is the character that separates a property value from the next property.
+// appendSeparatorFn returns the separator to use when appending a new property.
+func setPropertyInURL(jdbcURL, key, value string, boundaryPrefixes []string, valueSeparator string, appendSeparatorFn func(string) string) string {
 	prop := key + "="
 
-	// Search for the property at a parameter boundary (after ? or &)
 	idx := -1
-	for _, prefix := range []string{"?", "&"} {
+	for _, prefix := range boundaryPrefixes {
 		if i := strings.Index(jdbcURL, prefix+prop); i != -1 {
-			idx = i + len(prefix) // point to start of "key="
+			idx = i + len(prefix)
 			break
 		}
 	}
 
 	if idx != -1 {
-		// Replace existing value
 		valueStart := idx + len(prop)
-		valueEnd := strings.Index(jdbcURL[valueStart:], "&")
+		valueEnd := strings.Index(jdbcURL[valueStart:], valueSeparator)
 		if valueEnd == -1 {
 			return jdbcURL[:valueStart] + value
 		}
 		return jdbcURL[:valueStart] + value + jdbcURL[valueStart+valueEnd:]
 	}
 
-	// Append new property
-	separator := "&"
-	if !strings.Contains(jdbcURL, "?") {
-		separator = "?"
-	}
-	return jdbcURL + separator + key + "=" + value
+	return jdbcURL + appendSeparatorFn(jdbcURL) + key + "=" + value
+}
+
+// setSemicolonURLProperty adds or replaces a semicolon-delimited property
+// in a JDBC URL (used by BigQuery: jdbc:bigquery://...;Key=Value;Key2=Value2).
+func setSemicolonURLProperty(jdbcURL, key, value string) string {
+	return setPropertyInURL(jdbcURL, key, value, []string{";"}, ";", func(string) string { return ";" })
+}
+
+// setURLProperty adds or replaces a property in a JDBC URL.
+// Handles both ? and & separators, matching only at parameter boundaries.
+func setURLProperty(jdbcURL, key, value string) string {
+	return setPropertyInURL(jdbcURL, key, value, []string{"?", "&"}, "&", func(url string) string {
+		if !strings.Contains(url, "?") {
+			return "?"
+		}
+		return "&"
+	})
 }
