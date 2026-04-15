@@ -224,9 +224,11 @@ func TestExecuteConsolidatedFailure(t *testing.T) {
 	pluginOutput := execution.NewOutput()
 	args := Args{}
 
+	// The consolidated flow writes the exit code to pluginOutput and returns nil
+	// (caller reads exit code from DRONE_OUTPUT rather than from the error)
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
-	if err == nil {
-		t.Error("executeConsolidated() should error on command failure")
+	if err != nil {
+		t.Errorf("executeConsolidated() should return nil on command failure, got: %v", err)
 	}
 }
 
@@ -283,13 +285,11 @@ func TestExecuteConsolidatedMultiCommandFailsOnSecond(t *testing.T) {
 	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
-	if err == nil {
-		t.Fatal("executeConsolidated() should error on command failure")
+	// consolidated flow returns nil even on failure; exit code is written to pluginOutput
+	if err != nil {
+		t.Errorf("executeConsolidated() should return nil, got: %v", err)
 	}
-	// Should fail on command 2
-	if !strings.Contains(err.Error(), "command 2") {
-		t.Errorf("error should reference command 2, got: %v", err)
-	}
+	// first command succeeded so loop continued; second command failed causing loop exit
 	if callCount != 2 {
 		t.Errorf("expected 2 command executions, got %d", callCount)
 	}
@@ -407,8 +407,9 @@ func TestConsolidatedTagFailsUpdateSkipped(t *testing.T) {
 	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
-	if err == nil {
-		t.Fatal("executeConsolidated() should error when TAG fails")
+	// consolidated flow returns nil even on failure; exit code is written to pluginOutput
+	if err != nil {
+		t.Errorf("executeConsolidated() should return nil, got: %v", err)
 	}
 	if len(executedCommands) != 1 || executedCommands[0] != "tag" {
 		t.Errorf("only 'tag' should have executed, got: %v", executedCommands)
@@ -437,13 +438,45 @@ func TestConsolidatedPostUpdateSnapshotFails(t *testing.T) {
 	args := Args{}
 
 	err := executeConsolidated(args, []string{}, commands, pluginOutput)
-	if err == nil {
-		t.Fatal("executeConsolidated() should error when SNAPSHOT fails")
+	// consolidated flow returns nil even on failure; exit code is written to pluginOutput
+	if err != nil {
+		t.Errorf("executeConsolidated() should return nil, got: %v", err)
 	}
 	if callCount != 2 {
 		t.Errorf("expected 2 command executions, got %d", callCount)
 	}
-	if !strings.Contains(err.Error(), "command 2") {
-		t.Errorf("error should reference command 2, got: %v", err)
+}
+
+func TestExecuteConsolidatedStepOutputWrittenOnError(t *testing.T) {
+	origRunCmd := runCommandWithOutput
+	// Mock: write the step output file then fail, simulating Liquibase writing output before exiting non-zero
+	runCommandWithOutput = func(name string, args ...string) (int, []byte, error) {
+		os.WriteFile(StepOutputFile, []byte(`{"key":"value"}`), 0644)
+		return 1, nil, fmt.Errorf("command failed")
+	}
+	defer func() {
+		runCommandWithOutput = origRunCmd
+		os.Remove(StepOutputFile)
+	}()
+
+	commands := []ConsolidatedCommand{
+		{Command: "update", Args: map[string]string{}},
+	}
+
+	pluginOutput := execution.NewOutput()
+	args := Args{LiquibaseArgs: LiquibaseArgs{GenerateStepOutputs: "true"}}
+
+	err := executeConsolidated(args, []string{}, commands, pluginOutput)
+	if err != nil {
+		t.Fatalf("executeConsolidated() should return nil, got: %v", err)
+	}
+
+	// Verify step output was captured into pluginOutput even though the command failed
+	stepOutput := pluginOutput.GetProperty(OutputStepOutput)
+	if stepOutput == nil {
+		t.Fatal("step_output should be set in pluginOutput when GenerateStepOutputs=true and command fails")
+	}
+	if stepOutput != `{"key":"value"}` {
+		t.Errorf("step_output = %q, want %q", stepOutput, `{"key":"value"}`)
 	}
 }

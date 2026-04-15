@@ -48,11 +48,6 @@ func decodeCommands(encoded string) ([]ConsolidatedCommand, error) {
 
 // executeConsolidated runs multiple Liquibase commands sequentially.
 func executeConsolidated(args Args, globalOptions []string, commands []ConsolidatedCommand, pluginOutput *execution.Output) error {
-	logrus.Info("========================================")
-	logrus.Info("Running consolidated execution flow...")
-	logrus.Info("========================================")
-	logrus.Infof("Found %d commands to execute", len(commands))
-
 	for i, cmd := range commands {
 		logrus.Info("")
 		logrus.Info("========================================")
@@ -109,9 +104,24 @@ func executeConsolidated(args Args, globalOptions []string, commands []Consolida
 			os.Unsetenv(envVar)
 		}
 
+		// Write exit code to DRONE_OUTPUT
+		pluginOutput.AddProperty(OutputExitCode, execution.OutputPropertyTypeSimple, fmt.Sprintf("%d", exitCode))
+
+		// Write step output if enabled
+		if args.GenerateStepOutputs == "true" {
+			if fileExists(StepOutputFile) {
+				stepOutput, err := os.ReadFile(StepOutputFile)
+				if err != nil {
+					logrus.Warnf("Failed to read step output file: %v", err)
+				} else {
+					pluginOutput.AddProperty(OutputStepOutput, execution.OutputPropertyTypeSimple, strings.TrimRight(string(stepOutput), "\n"))
+				}
+				os.Remove(StepOutputFile)
+			}
+		}
+
 		if exitCode != 0 {
-			pluginOutput.AddProperty(OutputExitCode, execution.OutputPropertyTypeSimple, fmt.Sprintf("%d", exitCode))
-			return fmt.Errorf("command %d (%s) failed with exit code %d", i+1, cmd.Command, exitCode)
+			return nil
 		}
 
 		logrus.Infof("Command '%s' completed successfully", cmd.Command)
@@ -121,22 +131,6 @@ func executeConsolidated(args Args, globalOptions []string, commands []Consolida
 	logrus.Info("========================================")
 	logrus.Infof("All %d commands completed successfully", len(commands))
 	logrus.Info("========================================")
-
-	// All commands succeeded
-	pluginOutput.AddProperty(OutputExitCode, execution.OutputPropertyTypeSimple, "0")
-
-	// Write step output if enabled
-	if args.GenerateStepOutputs == "true" {
-		if fileExists(StepOutputFile) {
-			stepOutput, err := os.ReadFile(StepOutputFile)
-			if err != nil {
-				logrus.Warnf("Failed to read step output file: %v", err)
-			} else {
-				pluginOutput.AddProperty(OutputStepOutput, execution.OutputPropertyTypeSimple, strings.TrimRight(string(stepOutput), "\n"))
-			}
-			os.Remove(StepOutputFile)
-		}
-	}
 
 	return nil
 }

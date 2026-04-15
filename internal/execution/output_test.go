@@ -128,6 +128,27 @@ func TestCreateOutputFilePreservesOrder(t *testing.T) {
 	}
 }
 
+func TestGetProperty(t *testing.T) {
+	output := NewOutput()
+
+	// Returns nil for missing key
+	if got := output.GetProperty("missing"); got != nil {
+		t.Errorf("GetProperty(missing) = %v, want nil", got)
+	}
+
+	// Returns value for existing key
+	output.AddProperty("exit_code", OutputPropertyTypeSimple, "0")
+	if got := output.GetProperty("exit_code"); got != "0" {
+		t.Errorf("GetProperty(exit_code) = %v, want %q", got, "0")
+	}
+
+	// Reflects updates when the same key is set again
+	output.AddProperty("exit_code", OutputPropertyTypeSimple, "1")
+	if got := output.GetProperty("exit_code"); got != "1" {
+		t.Errorf("GetProperty(exit_code) after update = %v, want %q", got, "1")
+	}
+}
+
 func TestHandleError(t *testing.T) {
 	resp := &Response{}
 	err := HandleError(nil, resp)

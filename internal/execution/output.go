@@ -67,6 +67,11 @@ func (o *Output) AddProperty(name string, propType OutputPropertyType, value int
 	o.properties[name] = value
 }
 
+// GetProperty returns a property value by name, or nil if not set.
+func (o *Output) GetProperty(name string) interface{} {
+	return o.properties[name]
+}
+
 // SetExecutionStatus sets the execution status.
 func (o *Output) SetExecutionStatus(status ExecutionStatus) {
 	o.executionStatus = status
