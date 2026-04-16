@@ -15,8 +15,10 @@
 package plugin
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -92,4 +94,62 @@ func setJavaHomeEnv(javaHome string) {
 	if javaHome != "" {
 		os.Setenv("JAVA_HOME", javaHome)
 	}
+}
+
+// computeHeapFlags reads the container's cgroup memory limit and returns
+// -Xms and -Xmx flags set to heapPercent of the limit.
+// Setting Xms=Xmx:
+//   - eliminates heap resizing overhead and the GC pauses it triggers,
+//   - avoids latency spikes from the OS allocating new memory pages on demand,
+//   - gives a predictable memory footprint so the container orchestrator
+//     can manage resources accurately and avoid unexpected OOM kills.
+//
+// Returns empty string if the cgroup limit cannot be read.
+func computeHeapFlags(heapPercent int) string {
+	return computeHeapFlagsFromPaths(heapPercent,
+		"/sys/fs/cgroup/memory.max",
+		"/sys/fs/cgroup/memory/memory.limit_in_bytes",
+	)
+}
+
+// computeHeapFlagsFromPaths reads the container's cgroup memory limit from the
+// given paths (tried in order) and returns -Xms/-Xmx flags.
+func computeHeapFlagsFromPaths(heapPercent int, cgroupPaths ...string) string {
+	var memBytes int64
+	var err error
+	for _, p := range cgroupPaths {
+		memBytes, err = readCgroupMemoryLimit(p)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		logrus.Warnf("Could not read cgroup memory limit: %v", err)
+		return ""
+	}
+
+	heapMB := int(memBytes / 1024 / 1024 * int64(heapPercent) / 100)
+	logrus.Debugf("Container memory: %dMB, heap (Xms=Xmx): %dMB (%d%%)", memBytes/1024/1024, heapMB, heapPercent)
+	return fmt.Sprintf("-Xms%dm -Xmx%dm", heapMB, heapMB)
+}
+
+// readCgroupMemoryLimit reads the memory limit in bytes from a cgroup file.
+// Returns an error if the file doesn't exist or contains "max" (unlimited).
+func readCgroupMemoryLimit(path string) (int64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+
+	value := strings.TrimSpace(string(data))
+	if value == "max" || value == "9223372036854771712" {
+		return 0, fmt.Errorf("no memory limit set (value: %s)", value)
+	}
+
+	memBytes, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse memory limit %q: %w", value, err)
+	}
+
+	return memBytes, nil
 }

@@ -31,6 +31,9 @@ const (
 
 	LicenseGlobPattern = "/tmp/cert/*.jar.b64"
 	LicenseTargetDir   = "/liquibase/lib"
+
+	// HeapPercent is the percentage of container cgroup memory to use for JVM heap (Xms=Xmx).
+	HeapPercent = 50
 )
 
 // Exec executes the Liquibase plugin.
@@ -163,6 +166,12 @@ func Exec(args Args) (mainErr error) {
 	if existingOpts := os.Getenv("JAVA_OPTS"); existingOpts != "" {
 		javaOptsParts = append(javaOptsParts, existingOpts)
 	}
+
+	// Compute heap flags from container cgroup memory limit (50% of container memory)
+	if heapFlags := computeHeapFlags(HeapPercent); heapFlags != "" {
+		javaOptsParts = append(javaOptsParts, heapFlags)
+	}
+
 	if javaOptsFromCerts != "" {
 		javaOptsParts = append(javaOptsParts, javaOptsFromCerts)
 	}
@@ -172,6 +181,7 @@ func Exec(args Args) (mainErr error) {
 	if len(javaOptsParts) > 0 {
 		os.Setenv("JAVA_OPTS", strings.Join(javaOptsParts, " "))
 	}
+	logrus.Debugf("JAVA_OPTS: %s", os.Getenv("JAVA_OPTS"))
 
 	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS
 	if args.ConsolidatedCommand != "" {

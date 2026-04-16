@@ -68,4 +68,8 @@ COPY NOTICE /liquibase/NOTICE
 # Copy Go plugin binary
 COPY --from=go-builder /plugin /bin/plugin
 
+# JVM tuning:
+# - TieredStopAtLevel=1: C1 compiler only, faster cold start
+# - Xms/Xmx: computed dynamically by Go plugin from container cgroup memory limit (50%)
+ENV JAVA_OPTS="-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
 ENTRYPOINT ["/bin/plugin"]
