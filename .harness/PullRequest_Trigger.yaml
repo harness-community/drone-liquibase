@@ -1,10 +1,10 @@
 inputSet:
   name: Pull Request Trigger
   identifier: Pull_Request_Trigger
-  orgIdentifier: default
-  projectIdentifier: CD
+  orgIdentifier: PROD
+  projectIdentifier: Harness_Commons
   pipeline:
-    identifier: liquibaseDronePrBuild
+    identifier: dbDevopsPrBuild
     variables:
       - name: TITLE
         type: String
