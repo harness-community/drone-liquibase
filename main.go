@@ -63,7 +63,7 @@ func validateDependencies() error {
 	// Log warnings for optional commands
 	for _, cmd := range optionalCommands {
 		if _, err := exec.LookPath(cmd); err != nil {
-			logrus.Debugf("Optional command not found: %s (only needed for Kerberos)", cmd)
+			logrus.Warnf("Optional command not found: %s (only needed for Kerberos)", cmd)
 		}
 	}
 

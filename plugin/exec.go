@@ -88,7 +88,7 @@ func discoverAndInstallLicenseFiles(globPattern, targetDir string) {
 	}
 
 	if len(matches) == 0 {
-		logrus.Debug("License auto-discovery: no license files found")
+		logrus.Warn("License auto-discovery: no license files found")
 		return
 	}
 

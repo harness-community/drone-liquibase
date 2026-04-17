@@ -27,13 +27,11 @@ import (
 // detectJavaHome finds the Java installation directory and exports it.
 func detectJavaHome() string {
 	if javaHome := os.Getenv("JAVA_HOME"); javaHome != "" {
-		logrus.Debugf("Using JAVA_HOME from environment: %s", javaHome)
 		return javaHome
 	}
 
 	// Primary method: parse java.home from JVM settings
 	if javaHome := detectJavaHomeFromSettings(); javaHome != "" {
-		logrus.Debugf("Detected JAVA_HOME from java settings: %s", javaHome)
 		setJavaHomeEnv(javaHome)
 		return javaHome
 	}
@@ -48,7 +46,6 @@ func detectJavaHome() string {
 
 	for _, path := range commonPaths {
 		if _, err := os.Stat(filepath.Join(path, "bin", "java")); err == nil {
-			logrus.Debugf("Found JAVA_HOME at common path: %s", path)
 			setJavaHomeEnv(path)
 			return path
 		}
@@ -60,7 +57,6 @@ func detectJavaHome() string {
 		resolved, err := filepath.EvalSymlinks(strings.TrimSpace(string(javaPath)))
 		if err == nil {
 			javaHome := filepath.Dir(filepath.Dir(resolved))
-			logrus.Debugf("Derived JAVA_HOME from which: %s", javaHome)
 			setJavaHomeEnv(javaHome)
 			return javaHome
 		}
@@ -121,7 +117,7 @@ func buildJavaOpts(heapPercent int, extraOpts ...string) string {
 			parts = append(parts, heapFlags)
 		}
 	} else {
-		logrus.Debugf("Skipping heap flags: -Xms/-Xmx already present in JAVA_OPTS")
+		logrus.Warnf("Skipping heap flags: -Xms/-Xmx already present in JAVA_OPTS")
 	}
 
 	return strings.Join(parts, " ")
@@ -164,7 +160,6 @@ func computeHeapFlagsFromPaths(heapPercent int, cgroupPaths ...string) string {
 		logrus.Warnf("Computed heap size %dMB is below minimum threshold (64MB); skipping heap flags", heapMB)
 		return ""
 	}
-	logrus.Debugf("Container memory: %dMB, heap (Xms=Xmx): %dMB (%d%%)", memBytes/1024/1024, heapMB, heapPercent)
 	return fmt.Sprintf("-Xms%dm -Xmx%dm", heapMB, heapMB)
 }
 

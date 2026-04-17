@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -82,7 +80,7 @@ func (b *CommandBuilder) processGlobalOptions() []string {
 			b.processedVars[envVar] = true
 			// Unset the environment variable to hide sensitive values
 			os.Unsetenv(envVar)
-			logrus.Debugf("Added global option: --%s", option)
+
 		}
 	}
 
@@ -121,7 +119,6 @@ func (b *CommandBuilder) processSubstitutionProperties(encoded string) ([]string
 		args = append(args, arg)
 	}
 
-	logrus.Debugf("Processed %d substitution properties", len(properties))
 	return args, nil
 }
 
@@ -181,7 +178,6 @@ func (b *CommandBuilder) processRemainingEnvVars() []string {
 		option := EnvVarToOption(suffix)
 
 		args = append(args, "--"+option, value)
-		logrus.Debugf("Added remaining option: --%s", option)
 	}
 
 	return args

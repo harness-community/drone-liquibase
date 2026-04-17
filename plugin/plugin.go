@@ -91,7 +91,6 @@ func Exec(args Args) (mainErr error) {
 	if err != nil {
 		return fmt.Errorf("failed to load global options: %w", err)
 	}
-	logrus.Debugf("Loaded %d global options", len(globalOptions))
 
 	// For consolidated flow, decode commands early and export auth args
 	// from the first command as env vars so that cert, Kerberos, and GCP
@@ -163,7 +162,6 @@ func Exec(args Args) (mainErr error) {
 
 	javaOpts := buildJavaOpts(HeapPercent, os.Getenv("JAVA_OPTS"), javaOptsFromCerts, javaOptsFromKerberos)
 	os.Setenv("JAVA_OPTS", javaOpts)
-	logrus.Debugf("JAVA_OPTS: %s", os.Getenv("JAVA_OPTS"))
 
 	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS
 	if args.ConsolidatedCommand != "" {
