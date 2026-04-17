@@ -137,6 +137,10 @@ func TestComputeHeapFlagsFromPaths(t *testing.T) {
 		{"2GB at 50%", "2147483648", 50, "-Xms1024m -Xmx1024m"},
 		{"512MB at 50%", "536870912", 50, "-Xms256m -Xmx256m"},
 		{"1GB at 25%", "1073741824", 25, "-Xms256m -Xmx256m"},
+		// Below minimum threshold: 100MB * 50% = 50MB < 64MB → skip
+		{"below minimum threshold", "104857600", 50, ""},
+		// Exactly at threshold: 128MB * 50% = 64MB → include
+		{"at minimum threshold", "134217728", 50, "-Xms64m -Xmx64m"},
 	}
 
 	for _, tt := range tests {
@@ -172,4 +176,51 @@ func TestComputeHeapFlagsFromPathsNoCgroup(t *testing.T) {
 	if got != "" {
 		t.Errorf("computeHeapFlagsFromPaths() with no cgroup = %q, want empty", got)
 	}
+}
+
+func TestComputeHeapFlagsNoCgroup(t *testing.T) {
+	// In the test environment the real cgroup paths do not exist, so the
+	// function must return an empty string rather than panic or error.
+	got := computeHeapFlags(50)
+	if got != "" {
+		t.Errorf("computeHeapFlags() without cgroup = %q, want empty", got)
+	}
+}
+
+func TestBuildJavaOpts(t *testing.T) {
+	t.Run("static flags always prepended", func(t *testing.T) {
+		got := buildJavaOpts(50)
+		if !strings.HasPrefix(got, staticJVMFlags) {
+			t.Errorf("buildJavaOpts() = %q, want prefix %q", got, staticJVMFlags)
+		}
+	})
+
+	t.Run("empty extra opts are ignored", func(t *testing.T) {
+		got := buildJavaOpts(50, "", "")
+		if got != staticJVMFlags {
+			t.Errorf("buildJavaOpts() = %q, want %q", got, staticJVMFlags)
+		}
+	})
+
+	t.Run("non-empty extra opts appended in order", func(t *testing.T) {
+		got := buildJavaOpts(50, "-Dfoo=1", "-Dbar=2")
+		want := staticJVMFlags + " -Dfoo=1 -Dbar=2"
+		if got != want {
+			t.Errorf("buildJavaOpts() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("skips heap flags when -Xms already present", func(t *testing.T) {
+		got := buildJavaOpts(50, "-Xms512m -Xmx512m")
+		if strings.Count(got, "-Xms") != 1 {
+			t.Errorf("buildJavaOpts() added duplicate -Xms: %q", got)
+		}
+	})
+
+	t.Run("skips heap flags when only -Xmx present", func(t *testing.T) {
+		got := buildJavaOpts(50, "-Xmx1g")
+		if strings.Count(got, "-Xmx") != 1 {
+			t.Errorf("buildJavaOpts() added duplicate -Xmx: %q", got)
+		}
+	})
 }

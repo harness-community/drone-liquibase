@@ -161,26 +161,8 @@ func Exec(args Args) (mainErr error) {
 		}
 	}
 
-	// Set JAVA_OPTS
-	var javaOptsParts []string
-	if existingOpts := os.Getenv("JAVA_OPTS"); existingOpts != "" {
-		javaOptsParts = append(javaOptsParts, existingOpts)
-	}
-
-	// Compute heap flags from container cgroup memory limit (50% of container memory)
-	if heapFlags := computeHeapFlags(HeapPercent); heapFlags != "" {
-		javaOptsParts = append(javaOptsParts, heapFlags)
-	}
-
-	if javaOptsFromCerts != "" {
-		javaOptsParts = append(javaOptsParts, javaOptsFromCerts)
-	}
-	if javaOptsFromKerberos != "" {
-		javaOptsParts = append(javaOptsParts, javaOptsFromKerberos)
-	}
-	if len(javaOptsParts) > 0 {
-		os.Setenv("JAVA_OPTS", strings.Join(javaOptsParts, " "))
-	}
+	javaOpts := buildJavaOpts(HeapPercent, os.Getenv("JAVA_OPTS"), javaOptsFromCerts, javaOptsFromKerberos)
+	os.Setenv("JAVA_OPTS", javaOpts)
 	logrus.Debugf("JAVA_OPTS: %s", os.Getenv("JAVA_OPTS"))
 
 	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS

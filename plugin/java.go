@@ -96,6 +96,37 @@ func setJavaHomeEnv(javaHome string) {
 	}
 }
 
+// staticJVMFlags are the JVM tuning flags applied to every image variant.
+// -XX:+TieredCompilation is the default on modern HotSpot (included for explicitness).
+// -XX:TieredStopAtLevel=1 forces C1-only compilation for faster cold starts.
+const staticJVMFlags = "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+
+// buildJavaOpts assembles the final JAVA_OPTS string from all sources:
+//  1. Static JVM tuning flags (always prepended).
+//  2. Heap flags computed from cgroup memory limit — skipped if -Xms/-Xmx already present.
+//  3. Any extra opts (env JAVA_OPTS, cert opts, kerberos opts) appended in order.
+func buildJavaOpts(heapPercent int, extraOpts ...string) string {
+	parts := []string{staticJVMFlags}
+
+	for _, opt := range extraOpts {
+		if opt != "" {
+			parts = append(parts, opt)
+		}
+	}
+
+	// Skip heap flags if the operator already specified -Xms/-Xmx to avoid silent overrides.
+	combined := strings.Join(parts, " ")
+	if !strings.Contains(combined, "-Xms") && !strings.Contains(combined, "-Xmx") {
+		if heapFlags := computeHeapFlags(heapPercent); heapFlags != "" {
+			parts = append(parts, heapFlags)
+		}
+	} else {
+		logrus.Debugf("Skipping heap flags: -Xms/-Xmx already present in JAVA_OPTS")
+	}
+
+	return strings.Join(parts, " ")
+}
+
 // computeHeapFlags reads the container's cgroup memory limit and returns
 // -Xms and -Xmx flags set to heapPercent of the limit.
 // Setting Xms=Xmx:
@@ -129,6 +160,10 @@ func computeHeapFlagsFromPaths(heapPercent int, cgroupPaths ...string) string {
 	}
 
 	heapMB := int(memBytes / 1024 / 1024 * int64(heapPercent) / 100)
+	if heapMB < 64 {
+		logrus.Warnf("Computed heap size %dMB is below minimum threshold (64MB); skipping heap flags", heapMB)
+		return ""
+	}
 	logrus.Debugf("Container memory: %dMB, heap (Xms=Xmx): %dMB (%d%%)", memBytes/1024/1024, heapMB, heapPercent)
 	return fmt.Sprintf("-Xms%dm -Xmx%dm", heapMB, heapMB)
 }
