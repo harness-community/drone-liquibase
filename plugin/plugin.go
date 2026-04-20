@@ -31,6 +31,9 @@ const (
 
 	LicenseGlobPattern = "/tmp/cert/*.jar.b64"
 	LicenseTargetDir   = "/liquibase/lib"
+
+	// HeapPercent is the percentage of container cgroup memory to use for JVM heap (Xms=Xmx).
+	HeapPercent = 50
 )
 
 // Exec executes the Liquibase plugin.
@@ -88,7 +91,6 @@ func Exec(args Args) (mainErr error) {
 	if err != nil {
 		return fmt.Errorf("failed to load global options: %w", err)
 	}
-	logrus.Debugf("Loaded %d global options", len(globalOptions))
 
 	// For consolidated flow, decode commands early and export auth args
 	// from the first command as env vars so that cert, Kerberos, and GCP
@@ -158,20 +160,8 @@ func Exec(args Args) (mainErr error) {
 		}
 	}
 
-	// Set JAVA_OPTS
-	var javaOptsParts []string
-	if existingOpts := os.Getenv("JAVA_OPTS"); existingOpts != "" {
-		javaOptsParts = append(javaOptsParts, existingOpts)
-	}
-	if javaOptsFromCerts != "" {
-		javaOptsParts = append(javaOptsParts, javaOptsFromCerts)
-	}
-	if javaOptsFromKerberos != "" {
-		javaOptsParts = append(javaOptsParts, javaOptsFromKerberos)
-	}
-	if len(javaOptsParts) > 0 {
-		os.Setenv("JAVA_OPTS", strings.Join(javaOptsParts, " "))
-	}
+	javaOpts := buildJavaOpts(HeapPercent, os.Getenv("JAVA_OPTS"), javaOptsFromCerts, javaOptsFromKerberos)
+	os.Setenv("JAVA_OPTS", javaOpts)
 
 	// Consolidated execution flow: multiple commands via PLUGIN_COMMANDS
 	if args.ConsolidatedCommand != "" {
