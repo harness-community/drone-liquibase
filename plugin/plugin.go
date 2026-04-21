@@ -193,19 +193,26 @@ func Exec(args Args) (mainErr error) {
 	pluginOutput.AddProperty(OutputExitCode, execution.OutputPropertyTypeSimple, fmt.Sprintf("%d", exitCode))
 
 	// Write step output if enabled
-	if args.GenerateStepOutputs == "true" {
-		if fileExists(StepOutputFile) {
-			stepOutput, err := os.ReadFile(StepOutputFile)
-			if err != nil {
-				logrus.Warnf("Failed to read step output file: %v", err)
-			} else {
-				pluginOutput.AddProperty(OutputStepOutput, execution.OutputPropertyTypeSimple, strings.TrimRight(string(stepOutput), "\n"))
-			}
-			os.Remove(StepOutputFile)
-		}
-	}
+	captureStepOutput(args, pluginOutput)
 
 	return nil
+}
+
+// captureStepOutput reads the step output file (if present) and adds it to pluginOutput.
+func captureStepOutput(args Args, pluginOutput *execution.Output) {
+	if args.GenerateStepOutputs != "true" {
+		return
+	}
+	if !fileExists(StepOutputFile) {
+		return
+	}
+	defer os.Remove(StepOutputFile)
+	data, err := os.ReadFile(StepOutputFile)
+	if err != nil {
+		logrus.Warnf("Failed to read step output file: %v", err)
+		return
+	}
+	pluginOutput.AddProperty(OutputStepOutput, execution.OutputPropertyTypeSimple, strings.TrimRight(string(data), "\n"))
 }
 
 // validateInputs validates the required plugin inputs.
