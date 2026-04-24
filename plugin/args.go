@@ -22,6 +22,9 @@ const (
 
 	// LiquibaseBinary is the path to the liquibase binary.
 	LiquibaseBinary = "/liquibase/liquibase"
+
+	// CommandRunnerClass is the Java class for single-JVM consolidated execution.
+	CommandRunnerClass = "com.harness.dbops.runner.CommandRunner"
 )
 
 // Args provides plugin execution arguments.

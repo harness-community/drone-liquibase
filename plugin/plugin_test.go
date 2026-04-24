@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/harness/liquibase-drone-plugin/internal/execution"
 )
 
 func TestOptionToEnvVar(t *testing.T) {
@@ -417,6 +419,82 @@ func TestDiscoverAndInstallLicenseFilesSkipsExisting(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(destDir, "existing.jar"))
 	if string(data) != string(existingContent) {
 		t.Error("existing file should not be overwritten")
+	}
+}
+
+func TestCaptureStepOutputEnabled(t *testing.T) {
+	os.Remove(StepOutputFile)
+	defer os.Remove(StepOutputFile)
+
+	if err := os.WriteFile(StepOutputFile, []byte(`{"key":"value"}`), 0644); err != nil {
+		t.Fatalf("Failed to write step output file: %v", err)
+	}
+
+	pluginOutput := execution.NewOutput()
+	args := Args{LiquibaseArgs: LiquibaseArgs{GenerateStepOutputs: "true"}}
+
+	captureStepOutput(args, pluginOutput)
+
+	got := pluginOutput.GetProperty(OutputStepOutput)
+	if got != `{"key":"value"}` {
+		t.Errorf("step_output = %q, want %q", got, `{"key":"value"}`)
+	}
+	if fileExists(StepOutputFile) {
+		t.Error("StepOutputFile should be removed after capture")
+	}
+}
+
+func TestCaptureStepOutputDisabled(t *testing.T) {
+	os.Remove(StepOutputFile)
+	defer os.Remove(StepOutputFile)
+
+	if err := os.WriteFile(StepOutputFile, []byte(`{"key":"value"}`), 0644); err != nil {
+		t.Fatalf("Failed to write step output file: %v", err)
+	}
+
+	pluginOutput := execution.NewOutput()
+	args := Args{} // GenerateStepOutputs not set
+
+	captureStepOutput(args, pluginOutput)
+
+	if got := pluginOutput.GetProperty(OutputStepOutput); got != nil {
+		t.Errorf("step_output should be nil when disabled, got %v", got)
+	}
+	// File should still exist since capture was skipped
+	if !fileExists(StepOutputFile) {
+		t.Error("StepOutputFile should not be removed when capture is disabled")
+	}
+}
+
+func TestCaptureStepOutputNoFile(t *testing.T) {
+	os.Remove(StepOutputFile)
+
+	pluginOutput := execution.NewOutput()
+	args := Args{LiquibaseArgs: LiquibaseArgs{GenerateStepOutputs: "true"}}
+
+	captureStepOutput(args, pluginOutput)
+
+	if got := pluginOutput.GetProperty(OutputStepOutput); got != nil {
+		t.Errorf("step_output should be nil when file doesn't exist, got %v", got)
+	}
+}
+
+func TestCaptureStepOutputTrimsTrailingNewline(t *testing.T) {
+	os.Remove(StepOutputFile)
+	defer os.Remove(StepOutputFile)
+
+	if err := os.WriteFile(StepOutputFile, []byte("{\"key\":\"value\"}\n"), 0644); err != nil {
+		t.Fatalf("Failed to write step output file: %v", err)
+	}
+
+	pluginOutput := execution.NewOutput()
+	args := Args{LiquibaseArgs: LiquibaseArgs{GenerateStepOutputs: "true"}}
+
+	captureStepOutput(args, pluginOutput)
+
+	got := pluginOutput.GetProperty(OutputStepOutput)
+	if got != `{"key":"value"}` {
+		t.Errorf("step_output = %q, want %q (trailing newline should be trimmed)", got, `{"key":"value"}`)
 	}
 }
 
