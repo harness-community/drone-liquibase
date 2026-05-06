@@ -5,11 +5,15 @@
   <version>1.0.0</version>
   <packaging>pom</packaging>
   <description>Resolves AWS SDK v2 (rds, sts, auth) for IAM with aws-advanced-jdbc-wrapper. PostgreSQL driver is the stock jar under /liquibase/internal/lib from the Liquibase base image. Excludes slf4j-api and commons-codec so the image does not duplicate Liquibase internal slf4j-api or scripts/download-common.sh commons-codec.</description>
+  <properties>
+    <!-- Align with aws-advanced-jdbc-wrapper optional SDK deps (see wrapper POM). -->
+    <aws.sdk.version>2.42.19</aws.sdk.version>
+  </properties>
   <dependencies>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>rds</artifactId>
-      <version>2.42.19</version>
+      <version>${aws.sdk.version}</version>
       <exclusions>
         <exclusion>
           <groupId>commons-codec</groupId>
@@ -24,7 +28,7 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sts</artifactId>
-      <version>2.42.19</version>
+      <version>${aws.sdk.version}</version>
       <exclusions>
         <exclusion>
           <groupId>commons-codec</groupId>
@@ -39,7 +43,7 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>auth</artifactId>
-      <version>2.42.19</version>
+      <version>${aws.sdk.version}</version>
       <exclusions>
         <exclusion>
           <groupId>commons-codec</groupId>
