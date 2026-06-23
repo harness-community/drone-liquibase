@@ -17,6 +17,7 @@ MSSQL_JDBC_VERSION="12.10.2.jre11"
 MYSQL_CONNECTOR_VERSION="9.6.0"
 JACKSON_VERSION="2.18.6"
 COMMONS_CODEC_VERSION="1.21.0"
+POSTGRESQL_JDBC_VERSION="42.7.11"
 
 
 mkdir -p /liquibase/lib
@@ -68,6 +69,10 @@ wget -O /liquibase/lib/guava-${GUAVA_VERSION}.jar \
 # mssql-jdbc (replaces vulnerable 12.10.1 bundled in base image)
 wget -O /liquibase/lib/mssql-jdbc-${MSSQL_JDBC_VERSION}.jar \
   "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/${MSSQL_JDBC_VERSION}/mssql-jdbc-${MSSQL_JDBC_VERSION}.jar"
+
+# postgresql JDBC driver (replaces vulnerable 42.7.7 bundled in liquibase base image — CVE-2026-42198)
+wget -O /liquibase/lib/postgresql-${POSTGRESQL_JDBC_VERSION}.jar \
+  "https://repo1.maven.org/maven2/org/postgresql/postgresql/${POSTGRESQL_JDBC_VERSION}/postgresql-${POSTGRESQL_JDBC_VERSION}.jar"
 
 # mysql-connector-j (replaces lpm add mysql)
 wget -O /liquibase/lib/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar \
